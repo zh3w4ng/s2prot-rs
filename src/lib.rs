@@ -1,3 +1,5 @@
+pub mod protocol;
+
 pub mod bit_packed_buff {
     pub fn read_bits() {
         println!("hello");
