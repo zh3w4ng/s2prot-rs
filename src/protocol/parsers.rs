@@ -2,9 +2,9 @@ extern crate nom;
 
 use nom::{
     bytes::complete::{tag, take_till, take_until},
-    character::complete::{line_ending, newline},
+    character::complete::{line_ending, newline, space0},
     multi::many0,
-    sequence::preceded,
+    sequence::{delimited, preceded},
     IResult,
 };
 
@@ -31,12 +31,28 @@ pub fn parse_blank_lines(input: &str) -> IResult<&str, &str> {
     Ok((input, ""))
 }
 
+pub fn parse_type_name(input: &str) -> IResult<&str, &str> {
+    let (input, _) = space0(input)?;
+    let (input, type_name) = delimited(tag("('"), take_until("'"), tag("',"))(input)?;
+
+    Ok((input, type_name))
+}
+
+pub fn parse_offset_and_length(input: &str) -> IResult<&str, (usize, usize)> {
+    let (input, offset) = delimited(tag("[("), take_until(","), tag(","))(input)?;
+    let (input, length) = take_until(")")(input)?;
+    let offset: usize = offset.parse().expect("Not a valid number");
+    let length: usize = length.parse().expect("Not a valid number");
+
+    Ok((input, (offset, length)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn it_parses_comments_with_no_error() {
+    fn it_parse_comments_with_no_error() {
         let input = r#"
 # Copyright (c) 2015-2017 Blizzard Entertainment
 
@@ -77,5 +93,26 @@ abc"#;
         };
         assert_eq!(input, "abc");
         assert_eq!(res, "");
+    }
+
+    #[test]
+    fn it_parse_type_name_with_no_error() {
+        let input = "    ('_int',[(0,7)]),  #0";
+        let Ok((input, type_name)) = parse_type_name(input) else {
+            panic!("parse_type_name failed.")
+        };
+        assert_eq!(type_name, "_int");
+        assert_eq!(input, "[(0,7)]),  #0");
+    }
+
+    #[test]
+    fn it_parse_offset_and_length_with_no_error() {
+        let input = "[(0,7)]),  #0";
+        let Ok((input, (offset, length))) = parse_offset_and_length(input) else {
+            panic!("parse_offset_and_length failed.")
+        };
+        assert_eq!(offset, 0);
+        assert_eq!(length, 7);
+        assert_eq!(input, ")]),  #0");
     }
 }
