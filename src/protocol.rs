@@ -3,10 +3,11 @@ pub mod types;
 
 use nom::IResult;
 use parsers::{
-    parse_offset_and_length, parse_offset_and_length_and_type_index, parse_type_index,
-    parse_type_name, skip_remaining_of_line,
+    parse_offset_and_length, parse_offset_and_length_and_fields,
+    parse_offset_and_length_and_type_index, parse_type_index, parse_type_name,
+    skip_remaining_of_line,
 };
-use types::TypeInfo;
+use types::{Field, TypeInfo};
 
 pub fn build_type_info(input: &str) -> IResult<&str, TypeInfo> {
     let (input, type_name) = parse_type_name(input)?;
@@ -43,6 +44,25 @@ pub fn build_type_info(input: &str) -> IResult<&str, TypeInfo> {
                 },
             )
         }
+        "_choice" => {
+            let (input, (offset, length, fields)) = parse_offset_and_length_and_fields(input)?;
+            let fields = fields
+                .iter()
+                .map(|(name, index)| Field {
+                    name: name.to_string(),
+                    type_index: *index,
+                })
+                .collect();
+            let (input, _) = skip_remaining_of_line(input)?;
+            (
+                input,
+                TypeInfo::Choice {
+                    offset,
+                    length,
+                    fields,
+                },
+            )
+        }
         _ => unimplemented!(),
     };
 
@@ -57,6 +77,7 @@ fn it_build_type_infos_with_no_error() {
                         ('_blob',[(0,8)]),  #9
                         ('_array',[(16,0),10]),  #14
                         ('_optional',[84]),  #146
+                        ('_choice',[(0,2),{0:('m_uint6',3),1:('m_uint14',4),2:('m_uint22',5),3:('m_uint32',6)}]),  #7
 "#;
     let mut vec: Vec<TypeInfo> = Vec::with_capacity(6);
     while !input.is_empty() {
@@ -89,7 +110,29 @@ fn it_build_type_infos_with_no_error() {
                 length: 0,
                 type_index: 10
             },
-            TypeInfo::Optional { type_index: 84 }
+            TypeInfo::Optional { type_index: 84 },
+            TypeInfo::Choice {
+                offset: 0,
+                length: 2,
+                fields: vec![
+                    Field {
+                        name: "m_uint6".to_string(),
+                        type_index: 3
+                    },
+                    Field {
+                        name: "m_uint14".to_string(),
+                        type_index: 4
+                    },
+                    Field {
+                        name: "m_uint22".to_string(),
+                        type_index: 5
+                    },
+                    Field {
+                        name: "m_uint32".to_string(),
+                        type_index: 6
+                    }
+                ]
+            }
         ]
     );
 }

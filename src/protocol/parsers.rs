@@ -1,10 +1,10 @@
 extern crate nom;
 
 use nom::{
-    bytes::complete::{tag, take_till, take_until},
+    bytes::complete::{is_a, tag, take_till, take_until},
     character::complete::{line_ending, newline, space0},
     multi::many0,
-    sequence::{delimited, preceded},
+    sequence::{delimited, preceded, terminated},
     IResult,
 };
 
@@ -19,7 +19,6 @@ pub fn parse_comments(input: &str) -> IResult<&str, &str> {
 
 pub fn parse_imports(input: &str) -> IResult<&str, (&str, &str)> {
     let (input, import_from) = preceded(tag("from "), take_until(" import "))(input)?;
-    // let (input, _) = tag(" import ")(input)?;
     let (input, imported) = preceded(tag(" import "), take_until("\n"))(input)?;
 
     Ok((input, (import_from, imported.trim_end())))
@@ -49,12 +48,10 @@ pub fn parse_offset_and_length(input: &str) -> IResult<&str, (usize, usize)> {
 
 pub fn parse_offset_and_length_and_type_index(input: &str) -> IResult<&str, (usize, usize, i16)> {
     // [(16,0),10]),  #14"#;
-    let (input, offset) = delimited(tag("[("), take_until(","), tag(","))(input)?;
-    let (input, length) = take_until(")")(input)?;
+    let Ok((input, (offset, length))) = parse_offset_and_length(input) else {
+        panic!("parse_offset_and_length_and_type_index.")
+    };
     let (input, type_index) = delimited(tag("),"), take_until("]"), tag("]"))(input)?;
-
-    let offset: usize = offset.parse().expect("Not a valid number");
-    let length: usize = length.parse().expect("Not a valid number");
     let type_index: i16 = type_index.parse().expect("Not a valid number");
 
     Ok((input, (offset, length, type_index)))
@@ -65,6 +62,36 @@ pub fn parse_type_index(input: &str) -> IResult<&str, i16> {
     let type_index: i16 = type_index.parse().expect("Not a valid number");
 
     Ok((input, type_index))
+}
+
+pub fn parse_offset_and_length_and_fields(
+    input: &str,
+) -> IResult<&str, (usize, usize, Vec<(&str, i16)>)> {
+    println!("{input}");
+    let Ok((input, (offset, length))) = parse_offset_and_length(input) else {
+        panic!("parse_offset_and_length_and_fields failed.")
+    };
+    let mut fields: Vec<(&str, i16)> = Vec::new();
+    let mut field_name: &str;
+    let mut field_type_index: &str;
+    let (mut input, _) = tag("),")(input)?;
+    println!("{input}\n");
+    // {0:('m_uint6',3),1:('m_uint14',4),2:('m_uint22',5),3:('m_uint32',6)}]),  #7
+    while !input.is_empty() && !input.starts_with("}") {
+        (input, _) = delimited(is_a(",{"), take_until("'"), tag("'"))(input)?;
+        (input, field_name) = terminated(take_until("',"), tag("',"))(input)?;
+        (input, field_type_index) = terminated(take_until(")"), tag(")"))(input)?;
+        let field_type_index = field_type_index.parse().expect("Not a valid number");
+
+        fields.push((field_name, field_type_index));
+    }
+
+    Ok((input, (offset, length, fields)))
+}
+
+pub fn parse_struct_fields(input: &str) {
+    // ('_struct',[[('m_dataDeprecated',15,0),('m_data',16,1)]]),  #17
+    todo!()
 }
 
 pub fn skip_remaining_of_line(input: &str) -> IResult<&str, &str> {
@@ -164,6 +191,28 @@ abc"#;
         };
         assert_eq!(type_index, 10);
         assert_eq!(input, ")");
+    }
+
+    #[test]
+    fn it_parse_offset_and_length_and_fields_with_no_error() {
+        let input =
+            "[(0,2),{0:('m_uint6',3),1:('m_uint14',4),2:('m_uint22',5),3:('m_uint32',6)}]),  #7";
+        let Ok((input, (offset, length, fields))) = parse_offset_and_length_and_fields(input)
+        else {
+            panic!("parse_offset_and_length_and_fields failed.")
+        };
+        assert_eq!(offset, 0);
+        assert_eq!(length, 2);
+        assert_eq!(
+            fields,
+            Vec::from([
+                ("m_uint6", 3),
+                ("m_uint14", 4),
+                ("m_uint22", 5),
+                ("m_uint32", 6)
+            ])
+        );
+        assert_eq!(input, "}]),  #7")
     }
 
     #[test]
