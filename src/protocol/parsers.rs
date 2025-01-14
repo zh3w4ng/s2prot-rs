@@ -47,6 +47,32 @@ pub fn parse_offset_and_length(input: &str) -> IResult<&str, (usize, usize)> {
     Ok((input, (offset, length)))
 }
 
+pub fn parse_offset_and_length_and_type_index(input: &str) -> IResult<&str, (usize, usize, i16)> {
+    // [(16,0),10]),  #14"#;
+    let (input, offset) = delimited(tag("[("), take_until(","), tag(","))(input)?;
+    let (input, length) = take_until(")")(input)?;
+    let (input, type_index) = delimited(tag("),"), take_until("]"), tag("]"))(input)?;
+
+    let offset: usize = offset.parse().expect("Not a valid number");
+    let length: usize = length.parse().expect("Not a valid number");
+    let type_index: i16 = type_index.parse().expect("Not a valid number");
+
+    Ok((input, (offset, length, type_index)))
+}
+
+pub fn parse_type_index(input: &str) -> IResult<&str, i16> {
+    let (input, type_index) = delimited(tag("["), take_until("]"), tag("]"))(input)?;
+    let type_index: i16 = type_index.parse().expect("Not a valid number");
+
+    Ok((input, type_index))
+}
+
+pub fn skip_remaining_of_line(input: &str) -> IResult<&str, &str> {
+    let (input, _) = preceded(take_until("\n"), newline)(input)?;
+
+    Ok((input, ""))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -114,5 +140,39 @@ abc"#;
         assert_eq!(offset, 0);
         assert_eq!(length, 7);
         assert_eq!(input, ")]),  #0");
+    }
+
+    #[test]
+    fn it_parse_offset_and_length_and_type_index_with_no_error() {
+        let input = "[(16,0),10]),  #14";
+        let Ok((input, (offset, length, type_index))) =
+            parse_offset_and_length_and_type_index(input)
+        else {
+            panic!("parse_offset_and_length_and_type_index failed.")
+        };
+        assert_eq!(offset, 16);
+        assert_eq!(length, 0);
+        assert_eq!(type_index, 10);
+        assert_eq!(input, "),  #14");
+    }
+
+    #[test]
+    fn it_parse_type_index_with_no_error() {
+        let input = "[10])";
+        let Ok((input, type_index)) = parse_type_index(input) else {
+            panic!("parse_type_index failed.")
+        };
+        assert_eq!(type_index, 10);
+        assert_eq!(input, ")");
+    }
+
+    #[test]
+    fn it_skip_remaining_of_line_with_no_error() {
+        let input = r#"),  #14
+"#;
+        let Ok((input, _)) = skip_remaining_of_line(input) else {
+            panic!("skip_remaining_of_line failed.")
+        };
+        assert_eq!(input, "");
     }
 }
