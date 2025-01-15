@@ -1,7 +1,7 @@
 #[derive(Debug, PartialEq)]
 pub struct Field {
     pub name: String,
-    pub type_index: i16,
+    pub type_index: u16,
 }
 
 #[derive(Debug, PartialEq)]
@@ -18,14 +18,17 @@ pub enum TypeInfo {
     Array {
         offset: usize,
         length: usize,
-        type_index: i16,
+        type_index: u16,
     },
     Optional {
-        type_index: i16,
+        type_index: u16,
     },
     Choice {
         offset: usize,
         length: usize,
+        fields: Vec<Field>,
+    },
+    Struct {
         fields: Vec<Field>,
     },
 }

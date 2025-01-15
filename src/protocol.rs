@@ -3,9 +3,8 @@ pub mod types;
 
 use nom::IResult;
 use parsers::{
-    parse_offset_and_length, parse_offset_and_length_and_fields,
-    parse_offset_and_length_and_type_index, parse_type_index, parse_type_name,
-    skip_remaining_of_line,
+    parse_choice_fields, parse_offset_and_length, parse_struct_fields, parse_type_index,
+    parse_type_name, skip_remaining_of_line,
 };
 use types::{Field, TypeInfo};
 
@@ -32,8 +31,8 @@ pub fn build_type_info(input: &str) -> IResult<&str, TypeInfo> {
             (input, TypeInfo::Blob { offset, length })
         }
         "_array" => {
-            let (input, (offset, length, type_index)) =
-                parse_offset_and_length_and_type_index(input)?;
+            let (input, (offset, length)) = parse_offset_and_length(input)?;
+            let (input, type_index) = parse_type_index(input)?;
             let (input, _) = skip_remaining_of_line(input)?;
             (
                 input,
@@ -45,7 +44,8 @@ pub fn build_type_info(input: &str) -> IResult<&str, TypeInfo> {
             )
         }
         "_choice" => {
-            let (input, (offset, length, fields)) = parse_offset_and_length_and_fields(input)?;
+            let (input, (offset, length)) = parse_offset_and_length(input)?;
+            let (input, fields) = parse_choice_fields(input)?;
             let fields = fields
                 .iter()
                 .map(|(name, index)| Field {
@@ -63,6 +63,18 @@ pub fn build_type_info(input: &str) -> IResult<&str, TypeInfo> {
                 },
             )
         }
+        "_struct" => {
+            let (input, fields) = parse_struct_fields(input)?;
+            let fields = fields
+                .iter()
+                .map(|(name, index)| Field {
+                    name: name.to_string(),
+                    type_index: *index,
+                })
+                .collect();
+            let (input, _) = skip_remaining_of_line(input)?;
+            (input, TypeInfo::Struct { fields })
+        }
         _ => unimplemented!(),
     };
 
@@ -78,6 +90,7 @@ fn it_build_type_infos_with_no_error() {
                         ('_array',[(16,0),10]),  #14
                         ('_optional',[84]),  #146
                         ('_choice',[(0,2),{0:('m_uint6',3),1:('m_uint14',4),2:('m_uint22',5),3:('m_uint32',6)}]),  #7
+                        ('_struct',[[('m_dataDeprecated',15,0),('m_data',16,1)]]),  #17
 "#;
     let mut vec: Vec<TypeInfo> = Vec::with_capacity(6);
     while !input.is_empty() {
@@ -130,6 +143,18 @@ fn it_build_type_infos_with_no_error() {
                     Field {
                         name: "m_uint32".to_string(),
                         type_index: 6
+                    }
+                ]
+            },
+            TypeInfo::Struct {
+                fields: vec![
+                    Field {
+                        name: "m_dataDeprecated".to_string(),
+                        type_index: 15
+                    },
+                    Field {
+                        name: "m_data".to_string(),
+                        type_index: 16
                     }
                 ]
             }
