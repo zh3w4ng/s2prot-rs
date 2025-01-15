@@ -1,7 +1,7 @@
 extern crate nom;
 
 use nom::{
-    bytes::complete::{is_a, tag, take, take_till, take_until},
+    bytes::complete::{is_a, tag, take_till, take_until},
     character::complete::{line_ending, newline, space0},
     multi::many0,
     sequence::{delimited, preceded, terminated},
@@ -88,6 +88,18 @@ pub fn parse_struct_fields(input: &str) -> IResult<&str, Vec<(&str, u16)>> {
     }
 
     Ok((input, fields))
+}
+
+pub fn parse_event_type(input: &str) -> IResult<&str, (u16, &str, u16)> {
+    // 5: (82, 'NNet.Game.SUserFinishedLoadingSyncEvent'),
+    let (input, event_id) = delimited(space0, take_until(":"), tag(": "))(input)?;
+    let (input, type_index) = delimited(tag("("), take_until(","), tag(", "))(input)?;
+    let (input, event_name) = delimited(tag("'"), take_until("'"), tag("'),"))(input)?;
+
+    let event_id: u16 = event_id.parse().expect("Not a valid number");
+    let type_index: u16 = type_index.parse().expect("Not a valid number");
+
+    Ok((input, (event_id, event_name, type_index)))
 }
 
 pub fn skip_remaining_of_line(input: &str) -> IResult<&str, &str> {
@@ -211,6 +223,18 @@ abc"#;
         };
         assert_eq!(vec, vec![("m_dataDeprecated", 15), ("m_data", 16)]);
         assert_eq!(input, "]]),  #17");
+    }
+
+    #[test]
+    fn it_parse_event_type_with_no_error() {
+        let input = "    5: (82, 'NNet.Game.SUserFinishedLoadingSyncEvent'),";
+        let Ok((input, (event_id, event_name, type_index))) = parse_event_type(input) else {
+            panic!("parse_event_type failed.")
+        };
+        assert_eq!(event_id, 5);
+        assert_eq!(event_name, "NNet.Game.SUserFinishedLoadingSyncEvent");
+        assert_eq!(type_index, 82);
+        assert_eq!(input, "");
     }
 
     #[test]

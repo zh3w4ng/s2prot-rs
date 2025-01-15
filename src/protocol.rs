@@ -3,10 +3,10 @@ pub mod types;
 
 use nom::IResult;
 use parsers::{
-    parse_choice_fields, parse_offset_and_length, parse_struct_fields, parse_type_index,
-    parse_type_name, skip_remaining_of_line,
+    parse_choice_fields, parse_event_type, parse_offset_and_length, parse_struct_fields,
+    parse_type_index, parse_type_name, skip_remaining_of_line,
 };
-use types::{Field, TypeInfo};
+use types::{EventType, Field, TypeInfo};
 
 pub fn build_type_info(input: &str) -> IResult<&str, TypeInfo> {
     let (input, type_name) = parse_type_name(input)?;
@@ -75,10 +75,27 @@ pub fn build_type_info(input: &str) -> IResult<&str, TypeInfo> {
             let (input, _) = skip_remaining_of_line(input)?;
             (input, TypeInfo::Struct { fields })
         }
+        "_fourcc" => {
+            let (input, _) = skip_remaining_of_line(input)?;
+            (input, TypeInfo::FourCC)
+        }
         _ => unimplemented!(),
     };
 
     Ok((input, res))
+}
+
+pub fn build_event_type(input: &str) -> IResult<&str, EventType> {
+    let (input, (event_id, event_name, type_index)) = parse_event_type(input)?;
+    let (input, _) = skip_remaining_of_line(input)?;
+    Ok((
+        input,
+        EventType {
+            event_id,
+            type_index,
+            event_name: event_name.to_string(),
+        },
+    ))
 }
 
 #[test]
@@ -91,8 +108,9 @@ fn it_build_type_infos_with_no_error() {
                         ('_optional',[84]),  #146
                         ('_choice',[(0,2),{0:('m_uint6',3),1:('m_uint14',4),2:('m_uint22',5),3:('m_uint32',6)}]),  #7
                         ('_struct',[[('m_dataDeprecated',15,0),('m_data',16,1)]]),  #17
+                        ('_fourcc',[]),  #19
 "#;
-    let mut vec: Vec<TypeInfo> = Vec::with_capacity(6);
+    let mut vec: Vec<TypeInfo> = Vec::with_capacity(10);
     while !input.is_empty() {
         match build_type_info(input) {
             Ok((rest, type_info)) => {
@@ -157,7 +175,40 @@ fn it_build_type_infos_with_no_error() {
                         type_index: 16
                     }
                 ]
-            }
+            },
+            TypeInfo::FourCC
         ]
     );
+}
+
+#[test]
+fn it_build_event_types_with_no_error() {
+    let mut input = r#"   0: (192, 'NNet.Game.SChatMessage'),
+                                1: (193, 'NNet.Game.SPingMessage'),
+"#;
+    let mut vec: Vec<EventType> = Vec::with_capacity(6);
+    while !input.is_empty() {
+        match build_event_type(input) {
+            Ok((rest, event_type)) => {
+                vec.push(event_type);
+                input = rest;
+            }
+            _ => panic!("Failed to build event type: {input}"),
+        }
+    }
+    assert_eq!(
+        vec,
+        [
+            EventType {
+                event_id: 0,
+                type_index: 192,
+                event_name: "NNet.Game.SChatMessage".to_string(),
+            },
+            EventType {
+                event_id: 1,
+                type_index: 193,
+                event_name: "NNet.Game.SPingMessage".to_string(),
+            }
+        ]
+    )
 }
