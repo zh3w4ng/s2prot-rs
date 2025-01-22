@@ -6,6 +6,8 @@ pub mod bit_packed_buff {
     }
 }
 
+use std::fs;
+
 pub struct BitPackedBuff<'a> {
     pub buff: &'a [u8],
 }
@@ -17,6 +19,17 @@ impl<'a> BitPackedBuff<'a> {
     pub fn display(&self) {
         println!("Buff value: {:?}", self.buff);
     }
+}
+
+pub fn load_protocol_version(version: &str) {
+    let file_path = format!("src\\versions\\protocol{}.py", version);
+    let content = fs::read_to_string(file_path).expect("Failed to read file {file_path}");
+    match protocol::build_protocol(content.as_str()) {
+        Ok((_, protocol)) => {
+            println!("{:?}", protocol);
+        }
+        _ => panic!("Failed to build protocol"),
+    };
 }
 
 #[cfg(test)]

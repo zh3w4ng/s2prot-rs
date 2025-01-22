@@ -1,225 +1,264 @@
-extern crate nom;
+mod line_parsers;
 
-use nom::{
-    bytes::complete::{is_a, tag, take, take_till, take_until},
-    character::complete::{line_ending, newline, space0},
-    multi::many0,
-    sequence::{delimited, preceded, terminated},
-    IResult,
+use super::types::{EventType, Field, TypeInfo};
+use line_parsers::{
+    parse_choice_fields, parse_constant, parse_event_type, parse_offset_and_length,
+    parse_struct_fields, parse_type_index, parse_type_name, skip_remaining_of_line,
 };
+use nom::IResult;
 
-pub fn parse_comments(input: &str) -> IResult<&str, &str> {
-    let (input, _) = many0(line_ending)(input)?;
-    let (input, _) = tag("#")(input)?;
-    let (input, comment) = take_till(|c| c == '\n')(input)?;
-    let (input, _) = newline(input)?;
-
-    Ok((input, comment.trim_end()))
-}
-
-pub fn parse_imports(input: &str) -> IResult<&str, (&str, &str)> {
-    let (input, import_from) = preceded(tag("from "), take_until(" import "))(input)?;
-    let (input, imported) = preceded(tag(" import "), take_until("\n"))(input)?;
-
-    Ok((input, (import_from, imported.trim_end())))
-}
-
-pub fn parse_blank_lines(input: &str) -> IResult<&str, &str> {
-    let (input, _) = many0(line_ending)(input)?;
-
+pub fn skip_current_line(input: &str) -> IResult<&str, &str> {
+    let (input, _) = skip_remaining_of_line(input)?;
     Ok((input, ""))
 }
 
-pub fn parse_type_name(input: &str) -> IResult<&str, &str> {
-    let (input, _) = space0(input)?;
-    let (input, type_name) = delimited(tag("('"), take_until("'"), tag("',"))(input)?;
-
-    Ok((input, type_name))
+pub fn build_constant(input: &str) -> IResult<&str, Option<u16>> {
+    let (input, constant) = parse_constant(input)?;
+    Ok((input, Some(constant)))
 }
 
-pub fn parse_offset_and_length(input: &str) -> IResult<&str, (usize, usize)> {
-    let (input, offset) = delimited(tag("[("), take_until(","), tag(","))(input)?;
-    let (input, length) = take_until(")")(input)?;
-    let offset: usize = offset.parse().expect("Not a valid number");
-    let length: usize = length.parse().expect("Not a valid number");
-
-    Ok((input, (offset, length)))
-}
-
-pub fn parse_type_index(input: &str) -> IResult<&str, u16> {
-    let (input, type_index) = delimited(is_a("),["), take_until("]"), tag("]"))(input)?;
-    let type_index: u16 = type_index.parse().expect("Not a valid number");
-
-    Ok((input, type_index))
-}
-
-pub fn parse_choice_fields(input: &str) -> IResult<&str, Vec<(&str, u16)>> {
-    let mut fields: Vec<(&str, u16)> = Vec::new();
-    let mut field_name: &str;
-    let mut field_type_index: &str;
-    let (mut input, _) = tag("),")(input)?;
-    // {0:('m_uint6',3),1:('m_uint14',4),2:('m_uint22',5),3:('m_uint32',6)}]),  #7
-    while !input.is_empty() && !input.starts_with("}") {
-        (input, _) = delimited(is_a(",{"), take_until("'"), tag("'"))(input)?;
-        (input, field_name) = terminated(take_until("',"), tag("',"))(input)?;
-        (input, field_type_index) = terminated(take_until(")"), tag(")"))(input)?;
-        let field_type_index = field_type_index.parse().expect("Not a valid number");
-
-        fields.push((field_name, field_type_index));
+pub fn build_type_infos(mut input: &str) -> IResult<&str, Option<Vec<TypeInfo>>> {
+    let mut vec = Vec::new();
+    (input, _) = skip_remaining_of_line(input)?;
+    while !input.starts_with("]") {
+        match build_type_info(input) {
+            Ok((rest, type_info)) => {
+                vec.push(type_info);
+                input = rest;
+            }
+            _ => panic!("Failed to build type info"),
+        }
     }
-
-    Ok((input, fields))
+    (input, _) = skip_remaining_of_line(input)?;
+    Ok((input, Some(vec)))
 }
 
-pub fn parse_struct_fields(input: &str) -> IResult<&str, Vec<(&str, u16)>> {
-    // [[('m_dataDeprecated',15,0),('m_data',16,1)]]),  #17
-    let mut fields: Vec<(&str, u16)> = Vec::new();
-    let mut field_name: &str;
-    let mut field_type_index: &str;
+fn build_type_info(input: &str) -> IResult<&str, TypeInfo> {
+    let (input, type_name) = parse_type_name(input)?;
+    let (input, res) = match type_name {
+        "_bool" => {
+            let (input, _) = skip_remaining_of_line(input)?;
+            (input, TypeInfo::Bool)
+        }
+        "_optional" => {
+            let (input, type_index) = parse_type_index(input)?;
+            let (input, _) = skip_remaining_of_line(input)?;
+            (input, TypeInfo::Optional { type_index })
+        }
+        "_int" => {
+            let (input, (offset, length)) = parse_offset_and_length(input)?;
+            let (input, _) = skip_remaining_of_line(input)?;
+            (input, TypeInfo::Int { offset, length })
+        }
+        "_blob" => {
+            let (input, (offset, length)) = parse_offset_and_length(input)?;
+            let (input, _) = skip_remaining_of_line(input)?;
+            (input, TypeInfo::Blob { offset, length })
+        }
+        "_array" => {
+            let (input, (offset, length)) = parse_offset_and_length(input)?;
+            let (input, type_index) = parse_type_index(input)?;
+            let (input, _) = skip_remaining_of_line(input)?;
+            (
+                input,
+                TypeInfo::Array {
+                    offset,
+                    length,
+                    type_index,
+                },
+            )
+        }
+        "_bitarray" => {
+            let (input, (offset, length)) = parse_offset_and_length(input)?;
+            let (input, _) = skip_remaining_of_line(input)?;
+            (input, TypeInfo::BitArray { offset, length })
+        }
+        "_choice" => {
+            let (input, (offset, length)) = parse_offset_and_length(input)?;
+            let (input, fields) = parse_choice_fields(input)?;
+            let fields = fields
+                .iter()
+                .map(|(name, index)| Field {
+                    name: name.to_string(),
+                    type_index: *index,
+                })
+                .collect();
+            let (input, _) = skip_remaining_of_line(input)?;
+            (
+                input,
+                TypeInfo::Choice {
+                    offset,
+                    length,
+                    fields,
+                },
+            )
+        }
+        "_struct" => {
+            let (input, fields) = parse_struct_fields(input)?;
+            let fields = fields
+                .iter()
+                .map(|(name, index)| Field {
+                    name: name.to_string(),
+                    type_index: *index,
+                })
+                .collect();
+            let (input, _) = skip_remaining_of_line(input)?;
+            (input, TypeInfo::Struct { fields })
+        }
+        "_fourcc" => {
+            let (input, _) = skip_remaining_of_line(input)?;
+            (input, TypeInfo::FourCC)
+        }
+        "_null" => {
+            let (input, _) = skip_remaining_of_line(input)?;
+            (input, TypeInfo::Null)
+        }
+        _ => unimplemented!(),
+    };
+
+    Ok((input, res))
+}
+
+pub fn build_event_types(input: &str) -> IResult<&str, Option<Vec<EventType>>> {
+    let mut vec = Vec::new();
     let mut input = input;
-    while !input.is_empty() && !input.starts_with("]") {
-        (input, _) = delimited(is_a(",["), take_until("'"), tag("'"))(input)?;
-        (input, field_name) = terminated(take_until("',"), tag("',"))(input)?;
-        (input, field_type_index) = terminated(take_until(","), tag(","))(input)?;
-        (input, _) = terminated(take_until(")"), tag(")"))(input)?;
-        let field_type_index = field_type_index.parse().expect("Not a valid number");
-
-        fields.push((field_name, field_type_index));
+    (input, _) = skip_remaining_of_line(input)?;
+    while !input.starts_with("}") {
+        match build_event_type(input) {
+            Ok((rest, event_type)) => {
+                vec.push(event_type);
+                input = rest;
+            }
+            _ => panic!("Failed to build event_type info: {input}"),
+        }
     }
-
-    Ok((input, fields))
+    (input, _) = skip_remaining_of_line(input)?;
+    Ok((input, Some(vec)))
 }
 
-pub fn skip_remaining_of_line(input: &str) -> IResult<&str, &str> {
-    let (input, _) = preceded(take_until("\n"), newline)(input)?;
-
-    Ok((input, ""))
+fn build_event_type(input: &str) -> IResult<&str, EventType> {
+    let (input, (event_id, event_name, type_index)) = parse_event_type(input)?;
+    let (input, _) = skip_remaining_of_line(input)?;
+    Ok((
+        input,
+        EventType {
+            event_id,
+            type_index,
+            event_name: event_name.to_string(),
+        },
+    ))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_parse_comments_with_no_error() {
-        let input = r#"
-# Copyright (c) 2015-2017 Blizzard Entertainment
-
-
-
-# Decoding instructions for each protocol type.
-typeinfos = [
-    ('_int',[(0,7)]),  #0
-    ('_int',[(0,4)]),  #1
-    ('_int',[(0,5)]),  #2
-    ('_int',[(0,6)]),  #3
+#[test]
+fn it_build_type_infos_with_no_error() {
+    let input = r#"typeinfos = [
+                        ('_int',[(0,7)]),  #0
+                        ('_int',[(0,4)]),  #1
+                        ('_bool',[]),  #13
+                        ('_blob',[(0,8)]),  #9
+                        ('_bitarray',[(0,9)]),  #102
+                        ('_array',[(16,0),10]),  #14
+                        ('_optional',[84]),  #146
+                        ('_choice',[(0,2),{0:('m_uint6',3),1:('m_uint14',4),2:('m_uint22',5),3:('m_uint32',6)}]),  #7
+                        ('_struct',[[('m_dataDeprecated',15,0),('m_data',16,1)]]),  #17
+                        ('_fourcc',[]),  #19
+                        ('_null',[]),  #94
 ]
-        "#;
-        let Ok((_, comment)) = parse_comments(input) else {
-            panic!("parse_comments failed.")
-        };
-        assert_eq!(comment, " Copyright (c) 2015-2017 Blizzard Entertainment");
-    }
-
-    #[test]
-    fn it_parse_imports_with_no_error() {
-        let input = r#"from s2protocol.decoders import *
-        "#;
-        let Ok((_, (import_from, imported))) = parse_imports(input) else {
-            panic!("parse_imports failed.")
-        };
-        assert_eq!(import_from, "s2protocol.decoders");
-        assert_eq!(imported, "*");
-    }
-
-    #[test]
-    fn it_parse_blank_lines_with_no_error() {
-        let input = r#"
-
-abc"#;
-        let Ok((input, res)) = parse_blank_lines(input) else {
-            panic!("parse_blank_lines failed.")
-        };
-        assert_eq!(input, "abc");
-        assert_eq!(res, "");
-    }
-
-    #[test]
-    fn it_parse_type_name_with_no_error() {
-        let input = "    ('_int',[(0,7)]),  #0";
-        let Ok((input, type_name)) = parse_type_name(input) else {
-            panic!("parse_type_name failed.")
-        };
-        assert_eq!(type_name, "_int");
-        assert_eq!(input, "[(0,7)]),  #0");
-    }
-
-    #[test]
-    fn it_parse_offset_and_length_with_no_error() {
-        let input = "[(0,7)]),  #0";
-        let Ok((input, (offset, length))) = parse_offset_and_length(input) else {
-            panic!("parse_offset_and_length failed.")
-        };
-        assert_eq!(offset, 0);
-        assert_eq!(length, 7);
-        assert_eq!(input, ")]),  #0");
-    }
-
-    #[test]
-    fn it_parse_optional_type_index_with_no_error() {
-        let input = "[10])";
-        let Ok((input, type_index)) = parse_type_index(input) else {
-            panic!("parse_optional_type_index failed.")
-        };
-        assert_eq!(type_index, 10);
-        assert_eq!(input, ")");
-    }
-
-    #[test]
-    fn it_parse_array_type_index_with_no_error() {
-        let input = "),10])";
-        let Ok((input, type_index)) = parse_type_index(input) else {
-            panic!("parse_array_type_index failed.")
-        };
-        assert_eq!(type_index, 10);
-        assert_eq!(input, ")");
-    }
-
-    #[test]
-    fn it_parse_choice_fields_with_no_error() {
-        let input = "),{0:('m_uint6',3),1:('m_uint14',4),2:('m_uint22',5),3:('m_uint32',6)}]),  #7";
-        let Ok((input, fields)) = parse_choice_fields(input) else {
-            panic!("it_parse_choice_fields failed.")
-        };
-        assert_eq!(
-            fields,
-            vec![
-                ("m_uint6", 3),
-                ("m_uint14", 4),
-                ("m_uint22", 5),
-                ("m_uint32", 6)
-            ]
-        );
-        assert_eq!(input, "}]),  #7")
-    }
-
-    #[test]
-    fn it_parse_struct_fields_with_no_error() {
-        let input = "[[('m_dataDeprecated',15,0),('m_data',16,1)]]),  #17";
-        let Ok((input, vec)) = parse_struct_fields(input) else {
-            panic!("parse_struct_fields failed.")
-        };
-        assert_eq!(vec, vec![("m_dataDeprecated", 15), ("m_data", 16)]);
-        assert_eq!(input, "]]),  #17");
-    }
-
-    #[test]
-    fn it_skip_remaining_of_line_with_no_error() {
-        let input = r#"),  #14
 "#;
-        let Ok((input, _)) = skip_remaining_of_line(input) else {
-            panic!("skip_remaining_of_line failed.")
-        };
-        assert_eq!(input, "");
-    }
+    let Ok((input, Some(vec))) = build_type_infos(input) else {
+        panic!("Failed to build type infos: {input}")
+    };
+    assert_eq!(
+        vec,
+        [
+            TypeInfo::Int {
+                offset: 0,
+                length: 7
+            },
+            TypeInfo::Int {
+                offset: 0,
+                length: 4
+            },
+            TypeInfo::Bool,
+            TypeInfo::Blob {
+                offset: 0,
+                length: 8
+            },
+            TypeInfo::BitArray {
+                offset: 0,
+                length: 9
+            },
+            TypeInfo::Array {
+                offset: 16,
+                length: 0,
+                type_index: 10
+            },
+            TypeInfo::Optional { type_index: 84 },
+            TypeInfo::Choice {
+                offset: 0,
+                length: 2,
+                fields: vec![
+                    Field {
+                        name: "m_uint6".to_string(),
+                        type_index: 3
+                    },
+                    Field {
+                        name: "m_uint14".to_string(),
+                        type_index: 4
+                    },
+                    Field {
+                        name: "m_uint22".to_string(),
+                        type_index: 5
+                    },
+                    Field {
+                        name: "m_uint32".to_string(),
+                        type_index: 6
+                    }
+                ]
+            },
+            TypeInfo::Struct {
+                fields: vec![
+                    Field {
+                        name: "m_dataDeprecated".to_string(),
+                        type_index: 15
+                    },
+                    Field {
+                        name: "m_data".to_string(),
+                        type_index: 16
+                    }
+                ]
+            },
+            TypeInfo::FourCC,
+            TypeInfo::Null
+        ]
+    );
+    assert_eq!(input, "");
+}
+
+#[test]
+fn it_build_event_types_with_no_error() {
+    let input = r#"message_event_types = {
+                    0: (192, 'NNet.Game.SChatMessage'),
+                    1: (193, 'NNet.Game.SPingMessage'),
+}
+"#;
+    let Ok((input, Some(vec))) = build_event_types(input) else {
+        panic!("Failed to build event types: {input}")
+    };
+    assert_eq!(
+        vec,
+        [
+            EventType {
+                event_id: 0,
+                type_index: 192,
+                event_name: "NNet.Game.SChatMessage".to_string(),
+            },
+            EventType {
+                event_id: 1,
+                type_index: 193,
+                event_name: "NNet.Game.SPingMessage".to_string(),
+            }
+        ]
+    );
+    assert_eq!(input, "");
 }

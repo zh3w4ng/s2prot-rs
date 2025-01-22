@@ -5,18 +5,29 @@ pub struct Field {
 }
 
 #[derive(Debug, PartialEq)]
+pub struct EventType {
+    pub event_name: String,
+    pub event_id: u16,
+    pub type_index: u16,
+}
+
+#[derive(Debug, PartialEq)]
 pub enum TypeInfo {
     Int {
-        offset: usize,
+        offset: isize,
         length: usize,
     },
     Bool,
     Blob {
-        offset: usize,
+        offset: isize,
+        length: usize,
+    },
+    BitArray {
+        offset: isize,
         length: usize,
     },
     Array {
-        offset: usize,
+        offset: isize,
         length: usize,
         type_index: u16,
     },
@@ -24,11 +35,31 @@ pub enum TypeInfo {
         type_index: u16,
     },
     Choice {
-        offset: usize,
+        offset: isize,
         length: usize,
         fields: Vec<Field>,
     },
     Struct {
         fields: Vec<Field>,
     },
+    FourCC,
+    Null,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct Protocol {
+    pub build_version: u32,
+    pub type_infos: Option<Vec<TypeInfo>>,
+    pub has_tracker_events: bool,
+    pub game_event_types: Option<Vec<EventType>>,
+    pub game_eventid_type_index: Option<u16>,
+    pub message_event_types: Option<Vec<EventType>>,
+    pub message_eventid_type_index: Option<u16>,
+    pub tracker_event_types: Option<Vec<EventType>>,
+    pub tracker_eventid_type_index: Option<u16>,
+    pub game_loop_type_index: Option<u16>,
+    pub replay_userid_type_index: Option<u16>,
+    pub replay_header_type_index: Option<u16>,
+    pub game_details_type_index: Option<u16>,
+    pub replay_initdata_type_index: Option<u16>,
 }
