@@ -1,5 +1,7 @@
 mod line_parsers;
 
+use std::collections::HashMap;
+
 use super::types::{EventType, Field, TypeInfo};
 use line_parsers::{
     parse_choice_fields, parse_constant, parse_event_type, parse_offset_and_length,
@@ -17,7 +19,7 @@ pub fn build_constant(input: &str) -> IResult<&str, Option<u16>> {
     Ok((input, Some(constant)))
 }
 
-pub fn build_type_infos(mut input: &str) -> IResult<&str, Option<Vec<TypeInfo>>> {
+pub fn build_type_infos(mut input: &str) -> IResult<&str, Vec<TypeInfo>> {
     let mut vec = Vec::new();
     (input, _) = skip_remaining_of_line(input)?;
     while !input.starts_with("]") {
@@ -30,7 +32,7 @@ pub fn build_type_infos(mut input: &str) -> IResult<&str, Option<Vec<TypeInfo>>>
         }
     }
     (input, _) = skip_remaining_of_line(input)?;
-    Ok((input, Some(vec)))
+    Ok((input, vec))
 }
 
 fn build_type_info(input: &str) -> IResult<&str, TypeInfo> {
@@ -119,21 +121,21 @@ fn build_type_info(input: &str) -> IResult<&str, TypeInfo> {
     Ok((input, res))
 }
 
-pub fn build_event_types(input: &str) -> IResult<&str, Option<Vec<EventType>>> {
-    let mut vec = Vec::new();
+pub fn build_event_types(input: &str) -> IResult<&str, HashMap<u16, EventType>> {
+    let mut event_types = HashMap::new();
     let mut input = input;
     (input, _) = skip_remaining_of_line(input)?;
     while !input.starts_with("}") {
         match build_event_type(input) {
             Ok((rest, event_type)) => {
-                vec.push(event_type);
+                event_types.insert(event_type.event_id, event_type);
                 input = rest;
             }
             _ => panic!("Failed to build event_type info: {input}"),
         }
     }
     (input, _) = skip_remaining_of_line(input)?;
-    Ok((input, Some(vec)))
+    Ok((input, event_types))
 }
 
 fn build_event_type(input: &str) -> IResult<&str, EventType> {
@@ -165,7 +167,7 @@ fn it_build_type_infos_with_no_error() {
                         ('_null',[]),  #94
 ]
 "#;
-    let Ok((input, Some(vec))) = build_type_infos(input) else {
+    let Ok((input, vec)) = build_type_infos(input) else {
         panic!("Failed to build type infos: {input}")
     };
     assert_eq!(
@@ -242,23 +244,31 @@ fn it_build_event_types_with_no_error() {
                     1: (193, 'NNet.Game.SPingMessage'),
 }
 "#;
-    let Ok((input, Some(vec))) = build_event_types(input) else {
+    let Ok((input, event_types)) = build_event_types(input) else {
         panic!("Failed to build event types: {input}")
     };
     assert_eq!(
-        vec,
-        [
-            EventType {
-                event_id: 0,
-                type_index: 192,
-                event_name: "NNet.Game.SChatMessage".to_string(),
-            },
-            EventType {
-                event_id: 1,
-                type_index: 193,
-                event_name: "NNet.Game.SPingMessage".to_string(),
-            }
+        event_types,
+        vec![
+            (
+                0,
+                EventType {
+                    event_id: 0,
+                    type_index: 192,
+                    event_name: "NNet.Game.SChatMessage".to_string(),
+                }
+            ),
+            (
+                1,
+                EventType {
+                    event_id: 1,
+                    type_index: 193,
+                    event_name: "NNet.Game.SPingMessage".to_string(),
+                }
+            )
         ]
+        .into_iter()
+        .collect()
     );
     assert_eq!(input, "");
 }
