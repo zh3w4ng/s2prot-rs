@@ -22,7 +22,7 @@ jobs:
         toolchain: stable
 
     - name: Cache cargo registry
-      uses: actions/cache@v2
+      uses: actions/cache@v4
       with:
         path: ~/.cargo/registry
         key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
@@ -30,7 +30,7 @@ jobs:
           ${{ runner.os }}-cargo-registry-
 
     - name: Cache cargo index
-      uses: actions/cache@v2
+      uses: actions/cache@v4
       with:
         path: ~/.cargo/git
         key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
@@ -39,6 +39,11 @@ jobs:
 
     - name: Build project
       run: cargo build --verbose
+
+    - name: Debug file path
+      run: |
+        pwd
+        ls -R
 
     - name: Run tests
       run: cargo test --verbose
