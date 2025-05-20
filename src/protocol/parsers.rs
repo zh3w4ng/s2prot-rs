@@ -14,7 +14,7 @@ pub fn skip_current_line(input: &str) -> IResult<&str, &str> {
     Ok((input, ""))
 }
 
-pub fn build_constant(input: &str) -> IResult<&str, Option<u16>> {
+pub fn build_constant(input: &str) -> IResult<&str, Option<usize>> {
     let (input, constant) = parse_constant(input)?;
     Ok((input, Some(constant)))
 }
@@ -80,9 +80,10 @@ fn build_type_info(input: &str) -> IResult<&str, TypeInfo> {
             let (input, fields) = parse_choice_fields(input)?;
             let fields = fields
                 .iter()
-                .map(|(name, index)| Field {
+                .map(|(name, index, tag)| Field {
                     name: name.to_string(),
                     type_index: *index,
+                    tag: *tag,
                 })
                 .collect();
             let (input, _) = skip_remaining_of_line(input)?;
@@ -99,9 +100,10 @@ fn build_type_info(input: &str) -> IResult<&str, TypeInfo> {
             let (input, fields) = parse_struct_fields(input)?;
             let fields = fields
                 .iter()
-                .map(|(name, index)| Field {
+                .map(|(name, index, tag)| Field {
                     name: name.to_string(),
                     type_index: *index,
+                    tag: *tag,
                 })
                 .collect();
             let (input, _) = skip_remaining_of_line(input)?;
@@ -202,19 +204,23 @@ fn it_build_type_infos_with_no_error() {
                 fields: vec![
                     Field {
                         name: "m_uint6".to_string(),
-                        type_index: 3
+                        type_index: 3,
+                        tag: 0
                     },
                     Field {
                         name: "m_uint14".to_string(),
-                        type_index: 4
+                        type_index: 4,
+                        tag: 1
                     },
                     Field {
                         name: "m_uint22".to_string(),
-                        type_index: 5
+                        type_index: 5,
+                        tag: 2
                     },
                     Field {
                         name: "m_uint32".to_string(),
-                        type_index: 6
+                        type_index: 6,
+                        tag: 3
                     }
                 ]
             },
@@ -222,11 +228,13 @@ fn it_build_type_infos_with_no_error() {
                 fields: vec![
                     Field {
                         name: "m_dataDeprecated".to_string(),
-                        type_index: 15
+                        type_index: 15,
+                        tag: 0
                     },
                     Field {
                         name: "m_data".to_string(),
-                        type_index: 16
+                        type_index: 16,
+                        tag: 1
                     }
                 ]
             },

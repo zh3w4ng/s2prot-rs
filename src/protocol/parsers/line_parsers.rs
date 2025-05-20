@@ -1,16 +1,17 @@
-extern crate nom;
+// extern crate nom;
 
 use nom::{
-    bytes::complete::{is_a, tag, take_till, take_until},
+    bytes::complete::{is_a, tag, take, take_till, take_until},
     character::complete::{digit1, line_ending, newline, space0},
     multi::many0,
     sequence::{delimited, pair, preceded, terminated},
     IResult,
 };
 
-pub fn parse_constant(input: &str) -> IResult<&str, u16> {
-    let (input, constant) = preceded(pair(take_until("="), tag("= ")), digit1)(input)?;
-    let constant: u16 = constant.parse().expect("Not a valid number");
+pub fn parse_constant(input: &str) -> IResult<&str, usize> {
+    let mut parser = preceded(pair(take_until("="), tag("= ")), digit1);
+    let (input, constant) = parser(input)?;
+    let constant: usize = constant.parse().expect("Not a valid number");
 
     Ok((input, constant))
 }
@@ -53,57 +54,62 @@ pub fn parse_offset_and_length(input: &str) -> IResult<&str, (isize, usize)> {
     Ok((input, (offset, length)))
 }
 
-pub fn parse_type_index(input: &str) -> IResult<&str, u16> {
+pub fn parse_type_index(input: &str) -> IResult<&str, usize> {
     let (input, type_index) = delimited(is_a("),["), take_until("]"), tag("]"))(input)?;
-    let type_index: u16 = type_index.parse().expect("Not a valid number");
+    let type_index: usize = type_index.parse().expect("Not a valid number");
 
     Ok((input, type_index))
 }
 
-pub fn parse_choice_fields(input: &str) -> IResult<&str, Vec<(&str, u16)>> {
-    let mut fields: Vec<(&str, u16)> = Vec::new();
+pub fn parse_choice_fields(input: &str) -> IResult<&str, Vec<(&str, usize, isize)>> {
+    let mut fields: Vec<(&str, usize, isize)> = Vec::new();
+    let mut field_tag: &str;
     let mut field_name: &str;
     let mut field_type_index: &str;
     let (mut input, _) = tag("),")(input)?;
     // {0:('m_uint6',3),1:('m_uint14',4),2:('m_uint22',5),3:('m_uint32',6)}]),  #7
-    while !input.is_empty() && !input.starts_with("}") {
-        (input, _) = delimited(is_a(",{"), take_until("'"), tag("'"))(input)?;
+    while input.starts_with("{") || input.starts_with(",") {
+        (input, _) = take(1usize)(input)?;
+        (input, field_tag) = terminated(take_until(":('"), tag(":('"))(input)?;
         (input, field_name) = terminated(take_until("',"), tag("',"))(input)?;
         (input, field_type_index) = terminated(take_until(")"), tag(")"))(input)?;
+        let field_tag = field_tag.parse().expect("Not a valid number");
         let field_type_index = field_type_index.parse().expect("Not a valid number");
 
-        fields.push((field_name, field_type_index));
+        fields.push((field_name, field_type_index, field_tag));
     }
 
     Ok((input, fields))
 }
 
-pub fn parse_struct_fields(mut input: &str) -> IResult<&str, Vec<(&str, u16)>> {
+pub fn parse_struct_fields(mut input: &str) -> IResult<&str, Vec<(&str, usize, isize)>> {
     // [[('m_dataDeprecated',15,0),('m_data',16,1)]]),  #17
-    let mut fields: Vec<(&str, u16)> = Vec::new();
+    let mut fields: Vec<(&str, usize, isize)> = Vec::new();
     let mut field_name: &str;
     let mut field_type_index: &str;
-    while !input.is_empty() && !input.starts_with("]") && !input.starts_with("[[]]") {
-        (input, _) = delimited(is_a(",["), take_until("'"), tag("'"))(input)?;
+    let mut field_tag: &str;
+    while input.starts_with("[[('") || input.starts_with("),('") {
+        (input, _) = take(4usize)(input)?;
         (input, field_name) = terminated(take_until("',"), tag("',"))(input)?;
         (input, field_type_index) = terminated(take_until(","), tag(","))(input)?;
-        (input, _) = terminated(take_until(")"), tag(")"))(input)?;
+        (input, field_tag) = take_until(")")(input)?;
         let field_type_index = field_type_index.parse().expect("Not a valid number");
+        let field_tag = field_tag.parse().expect("Not a valid number");
 
-        fields.push((field_name, field_type_index));
+        fields.push((field_name, field_type_index, field_tag));
     }
 
     Ok((input, fields))
 }
 
-pub fn parse_event_type(input: &str) -> IResult<&str, (u16, &str, u16)> {
+pub fn parse_event_type(input: &str) -> IResult<&str, (u16, &str, usize)> {
     // 5: (82, 'NNet.Game.SUserFinishedLoadingSyncEvent'),
     let (input, event_id) = delimited(space0, take_until(":"), tag(": "))(input)?;
     let (input, type_index) = delimited(tag("("), take_until(","), tag(", "))(input)?;
     let (input, event_name) = delimited(tag("'"), take_until("'"), tag("'),"))(input)?;
 
     let event_id: u16 = event_id.parse().expect("Not a valid number");
-    let type_index: u16 = type_index.parse().expect("Not a valid number");
+    let type_index: usize = type_index.parse().expect("Not a valid number");
 
     Ok((input, (event_id, event_name, type_index)))
 }
@@ -222,10 +228,10 @@ abc"#;
         assert_eq!(
             fields,
             vec![
-                ("m_uint6", 3),
-                ("m_uint14", 4),
-                ("m_uint22", 5),
-                ("m_uint32", 6)
+                ("m_uint6", 3, 0),
+                ("m_uint14", 4, 1),
+                ("m_uint22", 5, 2),
+                ("m_uint32", 6, 3)
             ]
         );
         assert_eq!(input, "}]),  #7")
@@ -237,8 +243,8 @@ abc"#;
         let Ok((input, vec)) = parse_struct_fields(input) else {
             panic!("parse_struct_fields failed.")
         };
-        assert_eq!(vec, vec![("m_dataDeprecated", 15), ("m_data", 16)]);
-        assert_eq!(input, "]]),  #17");
+        assert_eq!(vec, vec![("m_dataDeprecated", 15, 0), ("m_data", 16, 1)]);
+        assert_eq!(input, ")]]),  #17");
     }
 
     #[test]

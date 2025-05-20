@@ -1,12 +1,10 @@
 mod parsers;
-mod types;
+pub mod types;
 
 use nom::IResult;
 use std::collections::HashMap;
 
 pub fn build_protocol(mut input: &str) -> IResult<&str, types::Protocol> {
-    // todo!()
-
     let mut type_infos = Vec::new();
     let mut game_event_types = HashMap::new();
     let mut message_event_types = HashMap::new();
