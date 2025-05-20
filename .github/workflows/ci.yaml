@@ -40,11 +40,6 @@ jobs:
     - name: Build project
       run: cargo build --verbose
 
-    - name: Debug file path
-      run: |
-        pwd
-        ls -R
-
     - name: Run tests
       run: cargo test --verbose
 

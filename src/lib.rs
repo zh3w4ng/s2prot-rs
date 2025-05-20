@@ -1,5 +1,6 @@
 pub mod protocol;
 pub mod replay;
+use std::path::Path;
 
 pub mod bit_packed_buff {
     pub fn read_bits() {
@@ -11,7 +12,8 @@ use protocol::types::Protocol;
 use std::fs;
 
 pub fn load_protocol_version(version: &str) -> Protocol {
-    let file_path = format!("assets\\protocols\\protocol{}.py", version);
+    let folder = Path::new("assets/protocols");
+    let file_path = format!("{}/protocol{}.py", folder.display(), version);
     let content = fs::read_to_string(file_path).expect("Failed to read file {file_path}");
     let (_, protocol) =
         protocol::build_protocol(content.as_str()).expect("Failed to build protocol");
