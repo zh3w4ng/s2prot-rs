@@ -151,15 +151,88 @@ mod tests {
         let bit_packed_buffer = BitPackedBuff::new_big_endian(input);
         let mut decoder = Decoder::new(bit_packed_buffer);
         let (_, user_data) = decoder.decode("UserData", index, &protocol).unwrap();
-        // assert_eq!(
-        //     user_data,
-        //     ParsedField {
-        //         name: "UserData".to_string(),
-        //         value: ParsedFieldType::Struct(vec![ParsedField {
-        //             name: "m_signature".to_string(),
-        //             value: ParsedFieldType::Int(0),
-        //         }])
-        //     }
-        // );
+        assert_eq!(
+            user_data,
+            ParsedField {
+                name: String::from("UserData"),
+                value: ParsedFieldType::Struct(vec![
+                    ParsedField {
+                        name: String::from("m_signature"),
+                        value: ParsedFieldType::Blob(vec![
+                            83, 116, 97, 114, 67, 114, 97, 102, 116, 32, 73, 73, 32, 114, 101, 112,
+                            108, 97, 121, 27, 49, 49
+                        ])
+                    },
+                    ParsedField {
+                        name: String::from("m_version"),
+                        value: ParsedFieldType::Struct(vec![
+                            ParsedField {
+                                name: String::from("m_flags"),
+                                value: ParsedFieldType::Int(1)
+                            },
+                            ParsedField {
+                                name: String::from("m_major"),
+                                value: ParsedFieldType::Int(5)
+                            },
+                            ParsedField {
+                                name: String::from("m_minor"),
+                                value: ParsedFieldType::Int(0)
+                            },
+                            ParsedField {
+                                name: String::from("m_revision"),
+                                value: ParsedFieldType::Int(14)
+                            },
+                            ParsedField {
+                                name: String::from("m_build"),
+                                value: ParsedFieldType::Int(93272)
+                            },
+                            ParsedField {
+                                name: String::from("m_baseBuild"),
+                                value: ParsedFieldType::Int(93272)
+                            }
+                        ])
+                    },
+                    ParsedField {
+                        name: String::from("m_type"),
+                        value: ParsedFieldType::Int(2)
+                    },
+                    ParsedField {
+                        name: String::from("m_elapsedGameLoops"),
+                        value: ParsedFieldType::Int(11749)
+                    },
+                    ParsedField {
+                        name: String::from("m_useScaledTime"),
+                        value: ParsedFieldType::Bool(true)
+                    },
+                    ParsedField {
+                        name: String::from("m_ngdpRootKey"),
+                        value: ParsedFieldType::Struct(vec![ParsedField {
+                            name: String::from("m_data"),
+                            value: ParsedFieldType::Blob(vec![
+                                82, 146, 10, 157, 137, 199, 246, 50, 53, 148, 93, 16, 243, 199, 60,
+                                100
+                            ])
+                        }])
+                    },
+                    ParsedField {
+                        name: String::from("m_dataBuildNum"),
+                        value: ParsedFieldType::Int(93272)
+                    },
+                    ParsedField {
+                        name: String::from("m_replayCompatibilityHash"),
+                        value: ParsedFieldType::Struct(vec![ParsedField {
+                            name: String::from("m_data"),
+                            value: ParsedFieldType::Blob(vec![
+                                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+                            ])
+                        }])
+                    },
+                    ParsedField {
+                        name: String::from("m_ngdpRootKeyIsDevData"),
+                        value: ParsedFieldType::Bool(false)
+                    }
+                ])
+            }
+        );
     }
 }
