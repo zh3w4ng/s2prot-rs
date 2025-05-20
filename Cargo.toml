@@ -6,3 +6,5 @@ edition = "2021"
 [dependencies]
 byteorder = "1.5.0"
 nom = "7.1.0"
+mpq = "0.8"
+
