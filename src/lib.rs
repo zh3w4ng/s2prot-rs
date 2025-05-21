@@ -24,5 +24,5 @@ pub fn load_protocol_version(version: &str) -> Protocol {
 pub fn load_replay_file(file_name: &str, protocol: &Protocol) {
     let file_path = format!("assets\\replays\\{}", file_name);
     let replay = replay::build_replay(&file_path, protocol);
-    // println!("{:?}", replay);
+    println!("{:?}", replay);
 }

@@ -123,7 +123,6 @@ impl<'a> BitPackedBuff<'a> {
     }
 
     pub fn read_aligned_bytes(&mut self, n: usize) -> Vec<u8> {
-        println!("read_aligned_bytes: {}", n);
         let mut vec = vec![0; n];
         self.byte_align();
         for el in vec.iter_mut() {
