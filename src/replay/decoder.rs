@@ -21,18 +21,18 @@ impl<'a> Decoder<'a> {
         type_index: usize,
         protocol: &'a Protocol,
     ) -> IResult<BitPackedBuff<'a>, ParsedField> {
-        // println!("Field name: {:?}", name);
+        println!("Field name: {:?}", name);
         match protocol.type_infos.get(type_index) {
             Some(TypeInfo::Bool) => {
-                // println!("Buffer: {}", self.buffer.data[self.buffer.byte_index]);
+                println!("Buffer: {}", self.buffer.data[self.buffer.byte_index]);
                 self.buffer.expect_and_skip_byte(6);
                 let name = name.to_string();
-                let value = ParsedFieldType::Bool(self.buffer.read_bits(8) != 0);
+                let value = Some(ParsedFieldType::Bool(self.buffer.read_bits(8) != 0));
 
                 Ok((self.buffer, ParsedField { name, value }))
             }
             Some(TypeInfo::Optional { type_index }) => {
-                // println!("Buffer: {}", self.buffer.data[self.buffer.byte_index]);
+                println!("Buffer: {}", self.buffer.data[self.buffer.byte_index]);
                 self.buffer.expect_and_skip_byte(4);
                 let exists = self.buffer.read_bits(8) != 0;
                 let parsed_field = if exists {
@@ -42,7 +42,7 @@ impl<'a> Decoder<'a> {
                     parsed_field
                 } else {
                     let name = name.to_string();
-                    let value = ParsedFieldType::Optional(None);
+                    let value = None;
 
                     ParsedField { name, value }
                 };
@@ -52,10 +52,11 @@ impl<'a> Decoder<'a> {
                 offset: _,
                 length: _,
             }) => {
-                // println!("Buffer: {}", self.buffer.data[self.buffer.byte_index]);
+                println!("Buffer: {}", self.buffer.data[self.buffer.byte_index]);
                 self.buffer.expect_and_skip_byte(9);
                 let name = name.to_string();
-                let value = ParsedFieldType::Int(self.buffer.read_var_int());
+                let value = Some(ParsedFieldType::Int(self.buffer.read_var_int()));
+                println!("Parsed value: {:?}", value);
 
                 Ok((self.buffer, ParsedField { name, value }))
             }
@@ -63,45 +64,47 @@ impl<'a> Decoder<'a> {
                 offset: _,
                 length: _,
             }) => {
-                // println!("Buffer: {}", self.buffer.data[self.buffer.byte_index]);
+                println!("Buffer: {}", self.buffer.data[self.buffer.byte_index]);
                 self.buffer.expect_and_skip_byte(2);
                 let name = name.to_string();
                 let length = self.buffer.read_var_int() as usize;
                 let bytes = self.buffer.read_aligned_bytes(length);
-                let value = ParsedFieldType::Blob(bytes);
+                let value = Some(ParsedFieldType::Blob(bytes));
+
+                Ok((self.buffer, ParsedField { name, value }))
+            }
+            Some(TypeInfo::FourCC) => {
+                println!("Buffer: {}", self.buffer.data[self.buffer.byte_index]);
+                self.buffer.expect_and_skip_byte(7);
+                let name = name.to_string();
+                let value = Some(ParsedFieldType::FourCC(self.buffer.read_aligned_bytes(4)));
 
                 Ok((self.buffer, ParsedField { name, value }))
             }
             Some(TypeInfo::Array {
-                offset,
-                length,
+                offset: _,
+                length: _,
                 type_index,
             }) => {
-                // println!("Buffer: {}", self.buffer.data[self.buffer.byte_index]);
+                println!("Buffer: {}", self.buffer.data[self.buffer.byte_index]);
                 self.buffer.expect_and_skip_byte(0);
                 let name = name.to_string();
-                let array_length = self.buffer.read_bits(*length) + *offset;
+                let array_length = self.buffer.read_var_int() as usize;
+                println!("Array length: {}", array_length);
                 let array = (0..array_length).map(|_| {
                     let Ok((_, parsed_field)) = self.decode("", *type_index, protocol) else {
                         panic!("Failed to decode TypeInfo::Array");
                     };
-                    parsed_field.value
+                    parsed_field.value.unwrap()
                 });
-                let value = ParsedFieldType::Array(array.collect());
+                let value = Some(ParsedFieldType::Array(array.collect()));
 
                 Ok((self.buffer, ParsedField { name, value }))
             }
             Some(TypeInfo::Struct { fields }) => {
-                // println!("Buffer: {}", self.buffer.data[self.buffer.byte_index]);
+                println!("Buffer: {}", self.buffer.data[self.buffer.byte_index]);
                 self.buffer.expect_and_skip_byte(5);
                 let fields_length = self.buffer.read_var_int() as usize;
-                // if fields_length != fields.len() {
-                //     panic!(
-                //         "Struct length mismatch: {} != {}",
-                //         fields_length,
-                //         fields.len()
-                //     );
-                // }
                 let mut parsed_fields: Vec<ParsedField> = Vec::with_capacity(fields_length);
                 let mut i = 0;
                 while i < fields_length {
@@ -120,7 +123,7 @@ impl<'a> Decoder<'a> {
                     i += 1;
                 }
                 let name = name.to_string();
-                let value = ParsedFieldType::Struct(parsed_fields);
+                let value = Some(ParsedFieldType::Struct(parsed_fields));
 
                 Ok((self.buffer, ParsedField { name, value }))
             }
@@ -155,83 +158,83 @@ mod tests {
             user_data,
             ParsedField {
                 name: String::from("UserData"),
-                value: ParsedFieldType::Struct(vec![
+                value: Some(ParsedFieldType::Struct(vec![
                     ParsedField {
                         name: String::from("m_signature"),
-                        value: ParsedFieldType::Blob(vec![
+                        value: Some(ParsedFieldType::Blob(vec![
                             83, 116, 97, 114, 67, 114, 97, 102, 116, 32, 73, 73, 32, 114, 101, 112,
                             108, 97, 121, 27, 49, 49
-                        ])
+                        ]))
                     },
                     ParsedField {
                         name: String::from("m_version"),
-                        value: ParsedFieldType::Struct(vec![
+                        value: Some(ParsedFieldType::Struct(vec![
                             ParsedField {
                                 name: String::from("m_flags"),
-                                value: ParsedFieldType::Int(1)
+                                value: Some(ParsedFieldType::Int(1))
                             },
                             ParsedField {
                                 name: String::from("m_major"),
-                                value: ParsedFieldType::Int(5)
+                                value: Some(ParsedFieldType::Int(5))
                             },
                             ParsedField {
                                 name: String::from("m_minor"),
-                                value: ParsedFieldType::Int(0)
+                                value: Some(ParsedFieldType::Int(0))
                             },
                             ParsedField {
                                 name: String::from("m_revision"),
-                                value: ParsedFieldType::Int(14)
+                                value: Some(ParsedFieldType::Int(14))
                             },
                             ParsedField {
                                 name: String::from("m_build"),
-                                value: ParsedFieldType::Int(93272)
+                                value: Some(ParsedFieldType::Int(93272))
                             },
                             ParsedField {
                                 name: String::from("m_baseBuild"),
-                                value: ParsedFieldType::Int(93272)
+                                value: Some(ParsedFieldType::Int(93272))
                             }
-                        ])
+                        ]))
                     },
                     ParsedField {
                         name: String::from("m_type"),
-                        value: ParsedFieldType::Int(2)
+                        value: Some(ParsedFieldType::Int(2))
                     },
                     ParsedField {
                         name: String::from("m_elapsedGameLoops"),
-                        value: ParsedFieldType::Int(11749)
+                        value: Some(ParsedFieldType::Int(11749))
                     },
                     ParsedField {
                         name: String::from("m_useScaledTime"),
-                        value: ParsedFieldType::Bool(true)
+                        value: Some(ParsedFieldType::Bool(true))
                     },
                     ParsedField {
                         name: String::from("m_ngdpRootKey"),
-                        value: ParsedFieldType::Struct(vec![ParsedField {
+                        value: Some(ParsedFieldType::Struct(vec![ParsedField {
                             name: String::from("m_data"),
-                            value: ParsedFieldType::Blob(vec![
+                            value: Some(ParsedFieldType::Blob(vec![
                                 82, 146, 10, 157, 137, 199, 246, 50, 53, 148, 93, 16, 243, 199, 60,
                                 100
-                            ])
-                        }])
+                            ]))
+                        }]))
                     },
                     ParsedField {
                         name: String::from("m_dataBuildNum"),
-                        value: ParsedFieldType::Int(93272)
+                        value: Some(ParsedFieldType::Int(93272))
                     },
                     ParsedField {
                         name: String::from("m_replayCompatibilityHash"),
-                        value: ParsedFieldType::Struct(vec![ParsedField {
+                        value: Some(ParsedFieldType::Struct(vec![ParsedField {
                             name: String::from("m_data"),
-                            value: ParsedFieldType::Blob(vec![
+                            value: Some(ParsedFieldType::Blob(vec![
                                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-                            ])
-                        }])
+                            ]))
+                        }]))
                     },
                     ParsedField {
                         name: String::from("m_ngdpRootKeyIsDevData"),
-                        value: ParsedFieldType::Bool(false)
+                        value: Some(ParsedFieldType::Bool(false))
                     }
-                ])
+                ]))
             }
         );
     }

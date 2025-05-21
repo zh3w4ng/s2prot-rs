@@ -98,7 +98,7 @@ fn build_type_info(input: &str) -> IResult<&str, TypeInfo> {
         }
         "_struct" => {
             let (input, fields) = parse_struct_fields(input)?;
-            let fields = fields
+            let mut fields: Vec<Field> = fields
                 .iter()
                 .map(|(name, index, tag)| Field {
                     name: name.to_string(),
@@ -107,6 +107,7 @@ fn build_type_info(input: &str) -> IResult<&str, TypeInfo> {
                 })
                 .collect();
             let (input, _) = skip_remaining_of_line(input)?;
+            fields.sort_by(|f1, f2| f1.tag.cmp(&f2.tag));
             (input, TypeInfo::Struct { fields })
         }
         "_fourcc" => {
