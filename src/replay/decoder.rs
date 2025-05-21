@@ -21,10 +21,10 @@ impl<'a> Decoder<'a> {
         type_index: usize,
         protocol: &'a Protocol,
     ) -> IResult<BitPackedBuff<'a>, ParsedField> {
-        println!("Field name: {:?}", name);
+        // println!("Field name: {:?}", name);
         match protocol.type_infos.get(type_index) {
             Some(TypeInfo::Bool) => {
-                println!("Buffer: {}", self.buffer.data[self.buffer.byte_index]);
+                // println!("Buffer: {}", self.buffer.data[self.buffer.byte_index]);
                 self.buffer.expect_and_skip_byte(6);
                 let name = name.to_string();
                 let value = ParsedFieldType::Bool(self.buffer.read_bits(8) != 0);
@@ -32,7 +32,7 @@ impl<'a> Decoder<'a> {
                 Ok((self.buffer, ParsedField { name, value }))
             }
             Some(TypeInfo::Optional { type_index }) => {
-                println!("Buffer: {}", self.buffer.data[self.buffer.byte_index]);
+                // println!("Buffer: {}", self.buffer.data[self.buffer.byte_index]);
                 self.buffer.expect_and_skip_byte(4);
                 let exists = self.buffer.read_bits(8) != 0;
                 let parsed_field = if exists {
@@ -52,7 +52,7 @@ impl<'a> Decoder<'a> {
                 offset: _,
                 length: _,
             }) => {
-                println!("Buffer: {}", self.buffer.data[self.buffer.byte_index]);
+                // println!("Buffer: {}", self.buffer.data[self.buffer.byte_index]);
                 self.buffer.expect_and_skip_byte(9);
                 let name = name.to_string();
                 let value = ParsedFieldType::Int(self.buffer.read_var_int());
@@ -63,7 +63,7 @@ impl<'a> Decoder<'a> {
                 offset: _,
                 length: _,
             }) => {
-                println!("Buffer: {}", self.buffer.data[self.buffer.byte_index]);
+                // println!("Buffer: {}", self.buffer.data[self.buffer.byte_index]);
                 self.buffer.expect_and_skip_byte(2);
                 let name = name.to_string();
                 let length = self.buffer.read_var_int() as usize;
@@ -77,7 +77,7 @@ impl<'a> Decoder<'a> {
                 length,
                 type_index,
             }) => {
-                println!("Buffer: {}", self.buffer.data[self.buffer.byte_index]);
+                // println!("Buffer: {}", self.buffer.data[self.buffer.byte_index]);
                 self.buffer.expect_and_skip_byte(0);
                 let name = name.to_string();
                 let array_length = self.buffer.read_bits(*length) + *offset;
@@ -92,7 +92,7 @@ impl<'a> Decoder<'a> {
                 Ok((self.buffer, ParsedField { name, value }))
             }
             Some(TypeInfo::Struct { fields }) => {
-                println!("Buffer: {}", self.buffer.data[self.buffer.byte_index]);
+                // println!("Buffer: {}", self.buffer.data[self.buffer.byte_index]);
                 self.buffer.expect_and_skip_byte(5);
                 let fields_length = self.buffer.read_var_int() as usize;
                 // if fields_length != fields.len() {

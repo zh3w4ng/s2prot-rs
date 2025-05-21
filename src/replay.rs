@@ -10,19 +10,14 @@ use types::*;
 
 pub fn build_replay(file_name: &str, protocol: &Protocol) -> ParsedField {
     let mut archive = load_mpq_archive(file_name);
-    // println!("MPQ Archive: {:?}", archive);
     let user_data = archive
         .read_user_data()
         .unwrap()
         .expect("Failed to retrieve User Data");
     let index: usize = protocol.replay_header_type_index.unwrap();
     let bit_packed_buffer = BitPackedBuff::new_big_endian(&user_data);
-    println!("content: {:?}", user_data);
     match Decoder::new(bit_packed_buffer).decode("UserData", index, protocol) {
-        Ok((_, parsed_field)) => {
-            println!("[build_replay] Parsed field: {:?}", parsed_field);
-            parsed_field
-        }
+        Ok((_, parsed_field)) => parsed_field,
         _ => panic!("Failed to parse user data"),
     }
 }
