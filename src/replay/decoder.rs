@@ -69,7 +69,8 @@ impl<'a> Decoder<'a> {
                 let name = name.to_string();
                 let length = self.buffer.read_var_int() as usize;
                 let bytes = self.buffer.read_aligned_bytes(length);
-                let value = Some(ParsedFieldType::Blob(bytes));
+                let chars = String::from_utf8_lossy(&bytes).into_owned();
+                let value = Some(ParsedFieldType::Blob(chars));
 
                 Ok((self.buffer, ParsedField { name, value }))
             }
@@ -161,10 +162,9 @@ mod tests {
                 value: Some(ParsedFieldType::Struct(vec![
                     ParsedField {
                         name: String::from("m_signature"),
-                        value: Some(ParsedFieldType::Blob(vec![
-                            83, 116, 97, 114, 67, 114, 97, 102, 116, 32, 73, 73, 32, 114, 101, 112,
-                            108, 97, 121, 27, 49, 49
-                        ]))
+                        value: Some(ParsedFieldType::Blob(String::from(
+                            "StarCraft II replay\u{1b}11"
+                        )))
                     },
                     ParsedField {
                         name: String::from("m_version"),
@@ -211,10 +211,9 @@ mod tests {
                         name: String::from("m_ngdpRootKey"),
                         value: Some(ParsedFieldType::Struct(vec![ParsedField {
                             name: String::from("m_data"),
-                            value: Some(ParsedFieldType::Blob(vec![
-                                82, 146, 10, 157, 137, 199, 246, 50, 53, 148, 93, 16, 243, 199, 60,
-                                100
-                            ]))
+                            value: Some(ParsedFieldType::Blob(String::from(
+                                "R�\n����25�]\u{10}��<d"
+                            )))
                         }]))
                     },
                     ParsedField {
@@ -225,9 +224,9 @@ mod tests {
                         name: String::from("m_replayCompatibilityHash"),
                         value: Some(ParsedFieldType::Struct(vec![ParsedField {
                             name: String::from("m_data"),
-                            value: Some(ParsedFieldType::Blob(vec![
-                                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-                            ]))
+                            value: Some(ParsedFieldType::Blob(String::from(
+                                "\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0"
+                            )))
                         }]))
                     },
                     ParsedField {
