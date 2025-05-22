@@ -161,6 +161,10 @@ impl<'a> BitPackedBuff<'a> {
             value >> 1
         }
     }
+
+    // pub fn done(&self) -> bool {
+    //     self.bits_in_cache == 0 && self.byte_index >= self.data.len()
+    // }
 }
 
 #[cfg(test)]
