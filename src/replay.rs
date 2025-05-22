@@ -2,10 +2,11 @@ pub mod buffer;
 pub mod decoder;
 pub mod types;
 
-use crate::protocol::types::Protocol;
+use crate::protocol::{self, types::Protocol};
 use buffer::BitPackedBuff;
 use decoder::Decoder;
 use mpq::Archive;
+use serde_json::Value;
 use std::str;
 use types::*;
 
@@ -15,6 +16,10 @@ pub fn build_replay(file_name: &str, protocol: &Protocol) -> Vec<ParsedField> {
     list_files_in_archive(&mut archive);
     let parsed_details_data = decode_details_data(&mut archive, protocol);
 
+    println!(
+        "Parsed Game Metadata: {:?}",
+        decode_game_metadata_json(&mut archive)
+    );
     vec![parsed_details_data]
 }
 
@@ -48,7 +53,7 @@ fn list_files_in_archive(archive: &mut Archive) {
 fn decode_details_data(archive: &mut Archive, protocol: &Protocol) -> ParsedField {
     let details_data_file = archive
         .open_file("replay.details")
-        .expect("Failed to open details data file");
+        .expect("Failed to open replay.details file");
     let mut details_data: Vec<u8> = vec![0; details_data_file.size() as usize];
     details_data_file.read(archive, &mut details_data).unwrap();
 
@@ -59,4 +64,17 @@ fn decode_details_data(archive: &mut Archive, protocol: &Protocol) -> ParsedFiel
         Ok((_, parsed_field)) => parsed_field,
         _ => panic!("Failed to parse details data"),
     }
+}
+
+fn decode_game_metadata_json(archive: &mut Archive) -> Value {
+    let game_metadata_file = archive
+        .open_file("replay.gamemetadata.json")
+        .expect("Failed to open replay.gamemetadata.jsonfile");
+    let mut game_metadata: Vec<u8> = vec![0; game_metadata_file.size() as usize];
+    game_metadata_file
+        .read(archive, &mut game_metadata)
+        .unwrap();
+
+    println!("Game metadata: {:?}", game_metadata);
+    serde_json::from_slice(&game_metadata).expect("Failed to parse JSON")
 }

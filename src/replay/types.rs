@@ -33,7 +33,7 @@ pub struct ParsedField {
 #[derive(Debug, PartialEq)]
 pub enum ParsedFieldType {
     Bool(bool),
-    Blob(Vec<u8>),
+    Blob(String),
     Int(isize),
     FourCC(Vec<u8>),
     Array(Vec<ParsedFieldType>),
