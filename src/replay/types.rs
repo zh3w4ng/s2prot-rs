@@ -38,4 +38,5 @@ pub enum ParsedFieldType {
     FourCC(Vec<u8>),
     Array(Vec<ParsedFieldType>),
     Struct(Vec<ParsedField>),
+    BitArray { length: usize, data: Vec<u8> },
 }
