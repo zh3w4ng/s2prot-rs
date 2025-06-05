@@ -40,6 +40,14 @@ impl<'a> BitPackedBuff<'a> {
             self.read_bits_little(n)
         }
     }
+    pub fn read_bit_array(&mut self, bits: usize) -> Vec<u8> {
+        let mut res = self.read_aligned_bytes(bits / 8);
+        if bits % 8 != 0 {
+            res.push(self.read_bits(bits % 8) as u8);
+        }
+        // self.byte_align();
+        res
+    }
     pub fn expect_and_skip_byte(&mut self, expected: u8) {
         if self.data[self.byte_index] != expected {
             panic!(
@@ -162,6 +170,10 @@ impl<'a> BitPackedBuff<'a> {
         }
     }
 
+    pub fn read_int(&mut self, length: usize, offset: isize) -> isize {
+        offset + self.read_bits(length)
+    }
+
     // pub fn done(&self) -> bool {
     //     self.bits_in_cache == 0 && self.byte_index >= self.data.len()
     // }
@@ -191,6 +203,24 @@ mod tests {
             let data: [u8; 4] = [0xae, 0x2b, 0x03, 0x00];
             assert_eq!("ae2b0300", format!("{:x}", BigEndian::read_u32(&data)));
         }
+
+        #[test]
+        fn it_reads_aligned_bytes() {
+            let data: [u8; 6] = [5, 18, 0, 2, 44, 83];
+            let mut buff = BitPackedBuff::new_big_endian(&data);
+            assert_eq!(0, buff.byte_index);
+            let bytes = buff.read_aligned_bytes(4);
+            assert_eq!(4, buff.byte_index);
+            assert_eq!(vec![5, 18, 0, 2], bytes);
+        }
+
+        #[test]
+        fn it_reads_int() {
+            let data: [u8; 2] = [1, 18];
+            let mut buff = BitPackedBuff::new_big_endian(&data);
+            let res = buff.read_int(16, 1);
+            assert_eq!(275, res);
+        }
     }
 
     #[cfg(test)]
@@ -211,11 +241,6 @@ mod tests {
             let data: [u8; 4] = [0xae, 0x2b, 0x03, 0x00];
             assert_eq!("32bae", format!("{:x}", LittleEndian::read_u32(&data)));
         }
-    }
-
-    #[cfg(test)]
-    mod read_var_int {
-        use super::super::*;
 
         #[test]
         fn it_reads_var_int() {
@@ -230,40 +255,6 @@ mod tests {
             let mut buff = BitPackedBuff::new_little_endian(&data);
             assert_eq!(93272, buff.read_var_int());
         }
-    }
-
-    #[cfg(test)]
-    mod skip_bytes {
-        use super::super::*;
-
-        #[test]
-        fn it_skips_bytes() {
-            let data: [u8; 6] = [5, 18, 0, 2, 44, 83];
-            let mut buff = BitPackedBuff::new_little_endian(&data);
-            assert_eq!(0, buff.byte_index);
-            buff.skip_bytes(4);
-            assert_eq!(4, buff.byte_index);
-        }
-    }
-
-    #[cfg(test)]
-    mod read_aligned_bytes {
-        use super::super::*;
-
-        #[test]
-        fn it_reads_aligned_bytes() {
-            let data: [u8; 6] = [5, 18, 0, 2, 44, 83];
-            let mut buff = BitPackedBuff::new_big_endian(&data);
-            assert_eq!(0, buff.byte_index);
-            let bytes = buff.read_aligned_bytes(4);
-            assert_eq!(4, buff.byte_index);
-            assert_eq!(vec![5, 18, 0, 2], bytes);
-        }
-    }
-
-    #[cfg(test)]
-    mod expect_and_skip_byte {
-        use super::super::*;
 
         #[test]
         fn it_expects_and_skips_bytes() {
@@ -272,6 +263,15 @@ mod tests {
             assert_eq!(0, buff.byte_index);
             buff.expect_and_skip_byte(5);
             assert_eq!(1, buff.byte_index);
+        }
+
+        #[test]
+        fn it_skips_bytes() {
+            let data: [u8; 6] = [5, 18, 0, 2, 44, 83];
+            let mut buff = BitPackedBuff::new_little_endian(&data);
+            assert_eq!(0, buff.byte_index);
+            buff.skip_bytes(4);
+            assert_eq!(4, buff.byte_index);
         }
     }
 }
