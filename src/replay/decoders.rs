@@ -13,6 +13,14 @@ impl<'a> BitPackedDecoder<'a> {
     pub fn new(buffer: BitPackedBuff<'a>) -> Self {
         Self { buffer }
     }
+
+    pub fn completed(&self) -> bool {
+        self.buffer.done()
+    }
+
+    pub fn align(&mut self) {
+        self.buffer.byte_align();
+    }
     pub fn decode(
         &mut self,
         name: &'a str,
@@ -21,7 +29,7 @@ impl<'a> BitPackedDecoder<'a> {
     ) -> IResult<BitPackedBuff<'a>, ParsedField> {
         match type_infos.get(type_index) {
             Some(TypeInfo::BitArray { offset, length }) => {
-                println!("BitArray Field: {}", name);
+                // println!("BitArray Field: {}", name);
                 let length = self.buffer.read_int(*length, *offset) as usize;
                 let name = name.to_string();
                 let data = self.buffer.read_bit_array(length);
@@ -31,7 +39,7 @@ impl<'a> BitPackedDecoder<'a> {
                 Ok((self.buffer, ParsedField { name, value }))
             }
             Some(TypeInfo::Bool) => {
-                println!("Bool Field: {}", name);
+                // println!("Bool Field: {}", name);
                 let name = name.to_string();
                 let value = Some(ParsedFieldType::Bool(self.buffer.read_bits(1) != 0));
                 // println!("Parsed value: {:?}\n", value);
@@ -39,7 +47,7 @@ impl<'a> BitPackedDecoder<'a> {
                 Ok((self.buffer, ParsedField { name, value }))
             }
             Some(TypeInfo::Int { offset, length }) => {
-                println!("Int Field: {}", name);
+                // println!("Int Field: {}", name);
                 let name = name.to_string();
                 let value = Some(ParsedFieldType::Int(self.buffer.read_int(*length, *offset)));
                 // println!("Parsed value: {:?}\n", value);
@@ -47,7 +55,7 @@ impl<'a> BitPackedDecoder<'a> {
                 Ok((self.buffer, ParsedField { name, value }))
             }
             Some(TypeInfo::Optional { type_index }) => {
-                println!("Optional Field: {}", name);
+                // println!("Optional Field: {}", name);
                 let exists = self.buffer.read_bits(1) != 0;
                 let parsed_field = if exists {
                     let Ok((_, parsed_field)) = self.decode(name, *type_index, type_infos) else {
@@ -65,12 +73,12 @@ impl<'a> BitPackedDecoder<'a> {
                 Ok((self.buffer, parsed_field))
             }
             Some(TypeInfo::Blob { offset, length }) => {
-                println!(
-                    "Blob Field: {}, offset: {}, length: {}",
-                    name, offset, length
-                );
+                // println!(
+                //     "Blob Field: {}, offset: {}, length: {}",
+                //     name, offset, length
+                // );
                 let length = self.buffer.read_int(*length, *offset) as usize;
-                println!("Blob length: {}", length);
+                // println!("Blob length: {}", length);
                 let name = name.to_string();
                 let bytes = self.buffer.read_aligned_bytes(length);
                 let chars = String::from_utf8_lossy(&bytes).into_owned();
@@ -84,9 +92,14 @@ impl<'a> BitPackedDecoder<'a> {
                 length,
                 type_index,
             }) => {
-                println!("Array Field: {}", name);
+                // println!("Array Field: {}", name);
                 let name = name.to_string();
+                // println!(
+                //     "Pre: Array Field: {}, length: {}, offset: {}",
+                //     name, *length, *offset,
+                // );
                 let length = self.buffer.read_int(*length, *offset) as usize;
+                // println!("Array Field: {}, length: {}", name, length);
                 let array = (0..length).map(|_| match self.decode("", *type_index, type_infos) {
                     Ok((_, parsed_field)) => parsed_field.value.unwrap(),
                     _ => panic!("Failed to decode TypeInfo::Array"),
@@ -97,7 +110,7 @@ impl<'a> BitPackedDecoder<'a> {
                 Ok((self.buffer, ParsedField { name, value }))
             }
             Some(TypeInfo::Struct { fields }) => {
-                println!("Struct Field: {}", name);
+                // println!("Struct Field: {}", name);
                 let parsed_fields = fields.iter().map(|field| {
                     match self.decode(&field.name, field.type_index, type_infos) {
                         Ok((_, parsed_field)) => parsed_field,
@@ -110,6 +123,28 @@ impl<'a> BitPackedDecoder<'a> {
 
                 Ok((self.buffer, ParsedField { name, value }))
             }
+            Some(TypeInfo::Choice {
+                offset,
+                length,
+                fields,
+            }) => {
+                // println!("Choice field: {}", name);
+                let tag = self.buffer.read_int(*length, *offset) as usize;
+                let field = fields.get(tag).unwrap_or_else(|| {
+                    panic!(
+                        "Failed to decode TypeInfo::Choice: tag {} not found in fields",
+                        tag
+                    )
+                });
+                self.decode(name, field.type_index, type_infos)
+            }
+            Some(TypeInfo::Null) => Ok((
+                self.buffer,
+                ParsedField {
+                    name: name.to_string(),
+                    value: Some(ParsedFieldType::Null),
+                },
+            )),
             others => {
                 panic!("Unknown TypeInfo: {}", others.unwrap());
             }

@@ -41,11 +41,10 @@ impl<'a> BitPackedBuff<'a> {
         }
     }
     pub fn read_bit_array(&mut self, bits: usize) -> Vec<u8> {
-        let mut res = self.read_aligned_bytes(bits / 8);
+        let mut res = self.read_unaligned_bytes(bits / 8);
         if bits % 8 != 0 {
             res.push(self.read_bits(bits % 8) as u8);
         }
-        // self.byte_align();
         res
     }
     pub fn expect_and_skip_byte(&mut self, expected: u8) {
@@ -94,7 +93,6 @@ impl<'a> BitPackedBuff<'a> {
         let mut value: isize = 0;
         loop {
             self.init_cache();
-
             match n.cmp(&self.bits_in_cache) {
                 Ordering::Greater => {
                     value = (value << (self.bits_in_cache)) | (self.cache as isize);
@@ -126,7 +124,7 @@ impl<'a> BitPackedBuff<'a> {
         }
     }
 
-    fn byte_align(&mut self) {
+    pub fn byte_align(&mut self) {
         self.bits_in_cache = 0;
     }
 
@@ -136,6 +134,14 @@ impl<'a> BitPackedBuff<'a> {
         for el in vec.iter_mut() {
             *el = self.data[self.byte_index];
             self.byte_index += 1;
+        }
+        vec
+    }
+
+    pub fn read_unaligned_bytes(&mut self, n: usize) -> Vec<u8> {
+        let mut vec = vec![0; n];
+        for el in vec.iter_mut() {
+            *el = self.read_bits(8) as u8;
         }
         vec
     }
@@ -174,9 +180,9 @@ impl<'a> BitPackedBuff<'a> {
         offset + self.read_bits(length)
     }
 
-    // pub fn done(&self) -> bool {
-    //     self.bits_in_cache == 0 && self.byte_index >= self.data.len()
-    // }
+    pub fn done(&self) -> bool {
+        self.bits_in_cache == 0 && self.byte_index >= self.data.len()
+    }
 }
 
 #[cfg(test)]

@@ -32,6 +32,7 @@ pub struct ParsedField {
 
 #[derive(Debug, PartialEq)]
 pub enum ParsedFieldType {
+    Null,
     Bool(bool),
     Blob(String),
     Int(isize),
