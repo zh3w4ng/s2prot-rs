@@ -41,3 +41,10 @@ pub enum ParsedFieldType {
     Struct(Vec<ParsedField>),
     BitArray { length: usize, data: Vec<u8> },
 }
+
+#[derive(Debug)]
+pub enum EventTypeVariant {
+    GameEvent,
+    MessageEvent,
+    TrackerEvent,
+}

@@ -2,11 +2,12 @@ pub mod buffer;
 pub mod decoders;
 pub mod types;
 
-use crate::protocol::{self, types::Protocol};
+use crate::protocol::types::{EventType, Protocol, TypeInfo};
 use buffer::BitPackedBuff;
-use decoders::{BitPackedDecoder, VersionedDecoder};
+use decoders::{raw_decode, versioned_decode};
 use mpq::Archive;
 use serde_json::Value;
+use std::collections::HashMap;
 use std::str;
 use types::*;
 
@@ -16,10 +17,12 @@ pub fn build_replay(file_name: &str, protocol: &Protocol) -> Vec<ParsedField> {
     list_files_in_archive(&mut archive);
     // let parsed_details_data = decode_details_data(&mut archive, protocol);
     // let parsed_init_data = decode_init_data(&mut archive, protocol);
-    let parsed_data = decode_game_events_data(&mut archive, protocol);
+    // let parse_game_events = decode_game_events_data(&mut archive, protocol);
+    // let parsed_message_events = decode_message_events_data(&mut archive, protocol);
+    let parsed_tracker_events = decode_tracker_events_data(&mut archive, protocol);
 
     // println!(
-    //     "Parsed Game Metadata: {:?}",
+    //     "parsed game metadata: {:?}",
     //     decode_game_metadata_json(&mut archive)
     // );
     vec![]
@@ -35,12 +38,9 @@ fn decode_user_data(archive: &mut Archive, protocol: &Protocol) -> ParsedField {
         .expect("Failed to read User Data")
         .expect("Failed to unwrap User Data");
     let index: usize = protocol.replay_header_type_index.unwrap();
-    let bit_packed_buffer = BitPackedBuff::new_big_endian(&user_data);
+    let mut buffer = BitPackedBuff::new_big_endian(&user_data);
 
-    match VersionedDecoder::new(bit_packed_buffer).decode("UserData", index, protocol) {
-        Ok((_, parsed_field)) => parsed_field,
-        _ => panic!("Failed to parse user data"),
-    }
+    versioned_decode("UserData", index, protocol, &mut buffer)
 }
 
 fn list_files_in_archive(archive: &mut Archive) {
@@ -59,12 +59,9 @@ fn decode_details_data(archive: &mut Archive, protocol: &Protocol) -> ParsedFiel
     details_data_file.read(archive, &mut details_data).unwrap();
 
     let index: usize = protocol.game_details_type_index.unwrap();
-    let bit_packed_buffer = BitPackedBuff::new_big_endian(&details_data);
+    let mut buffer = BitPackedBuff::new_big_endian(&details_data);
 
-    match VersionedDecoder::new(bit_packed_buffer).decode("DetailsData", index, protocol) {
-        Ok((_, parsed_field)) => parsed_field,
-        _ => panic!("Failed to parse details data"),
-    }
+    versioned_decode("DetailsData", index, protocol, &mut buffer)
 }
 
 fn decode_init_data(archive: &mut Archive, protocol: &Protocol) -> ParsedField {
@@ -77,12 +74,9 @@ fn decode_init_data(archive: &mut Archive, protocol: &Protocol) -> ParsedField {
         .expect("Failed to read init data");
 
     let index: usize = protocol.replay_initdata_type_index.unwrap();
-    let bit_packed_buffer = BitPackedBuff::new_big_endian(&init_data);
+    let mut buffer = BitPackedBuff::new_big_endian(&init_data);
 
-    match BitPackedDecoder::new(bit_packed_buffer).decode("InitData", index, &protocol.type_infos) {
-        Ok((_, parsed_field)) => parsed_field,
-        _ => panic!("Failed to parse init data"),
-    }
+    raw_decode("InitData", index, protocol, &mut buffer)
 }
 
 fn decode_game_metadata_json(archive: &mut Archive) -> Value {
@@ -99,63 +93,105 @@ fn decode_game_metadata_json(archive: &mut Archive) -> Value {
 }
 
 fn decode_game_events_data(archive: &mut Archive, protocol: &Protocol) {
-    let game_events_data_file = archive
-        .open_file("replay.game.events")
-        .expect("Failed to open replay.game.events file");
-    let mut game_events_data: Vec<u8> = vec![0; game_events_data_file.size() as usize];
-    game_events_data_file
-        .read(archive, &mut game_events_data)
-        .unwrap();
+    decode_events_data_for_variant(archive, protocol, EventTypeVariant::GameEvent);
+}
 
-    let bit_packed_buffer = BitPackedBuff::new_big_endian(&game_events_data);
-    let mut decoder = BitPackedDecoder::new(bit_packed_buffer);
+fn decode_message_events_data(archive: &mut Archive, protocol: &Protocol) {
+    decode_events_data_for_variant(archive, protocol, EventTypeVariant::MessageEvent);
+}
+
+fn decode_tracker_events_data(archive: &mut Archive, protocol: &Protocol) {
+    decode_events_data_for_variant(archive, protocol, EventTypeVariant::TrackerEvent);
+}
+
+fn decode_events_data_for_variant(
+    archive: &mut Archive,
+    protocol: &Protocol,
+    event_type_variant: EventTypeVariant,
+) {
+    let (events_data_file_name, event_id_type_index, event_types, user_id_present, decode): (
+        &str,
+        usize,
+        &HashMap<u16, EventType>,
+        bool,
+        fn(
+            name: &str,
+            type_index: usize,
+            protocol: &Protocol,
+            buffer: &mut BitPackedBuff,
+        ) -> ParsedField,
+    ) = match event_type_variant {
+        EventTypeVariant::GameEvent => (
+            "replay.game.events",
+            protocol.game_eventid_type_index.unwrap(),
+            &protocol.game_event_types,
+            true,
+            raw_decode,
+        ),
+        EventTypeVariant::MessageEvent => (
+            "replay.message.events",
+            protocol.message_eventid_type_index.unwrap(),
+            &protocol.message_event_types,
+            true,
+            raw_decode,
+        ),
+        EventTypeVariant::TrackerEvent => (
+            "replay.tracker.events",
+            protocol.tracker_eventid_type_index.unwrap(),
+            &protocol.tracker_event_types,
+            false,
+            versioned_decode,
+        ),
+    };
+    let events_data_file = archive
+        .open_file(events_data_file_name)
+        .expect("Failed to open events file");
+    let mut events_data: Vec<u8> = vec![0; events_data_file.size() as usize];
+    events_data_file.read(archive, &mut events_data).unwrap();
+
+    let mut buffer = BitPackedBuff::new_big_endian(&events_data);
     let game_loop_type_index = protocol.game_loop_type_index.unwrap();
     let user_id_type_index = protocol.replay_userid_type_index.unwrap();
-    let event_id_type_index = protocol.game_eventid_type_index.unwrap();
     let mut loop_id: usize = 0;
-    while !decoder.completed() {
-        let loop_data = match decoder.decode("loopData", game_loop_type_index, &protocol.type_infos)
-        {
-            Ok((
-                _,
-                ParsedField {
-                    name: _,
-                    value: Some(ParsedFieldType::Int(loop_data)),
-                },
-            )) => loop_data as usize,
+    while !buffer.done() {
+        let loop_data = match decode("loopData", game_loop_type_index, protocol, &mut buffer) {
+            ParsedField {
+                name: _,
+                value: Some(ParsedFieldType::Int(loop_data)),
+            } => loop_data as usize,
             _ => panic!("Failed to parse game loop data in game events"),
         };
         println!("Loop Delta: {}", loop_data);
         loop_id += loop_data;
 
-        let user_data_fields =
-            match decoder.decode("userId", user_id_type_index, &protocol.type_infos) {
-                Ok((
-                    _,
-                    ParsedField {
-                        name: _,
-                        value: Some(ParsedFieldType::Struct(fields)),
-                    },
-                )) => fields,
-                _ => panic!("Failed to parse user ID in game events"),
-            };
-        let user_id = match user_data_fields.iter().find(|f| f.name == "m_userId") {
-            Some(ParsedField {
-                name: _,
-                value: Some(ParsedFieldType::Int(user_id)),
-            }) => user_id,
-            _ => panic!("Failed to find user ID in user data"),
-        };
-        println!("User ID: {}", user_id);
-
-        let field = match decoder.decode("eventId", event_id_type_index, &protocol.type_infos) {
-            Ok((
-                _,
+        let user_id;
+        if user_id_present {
+            let user_data_fields = match decode("userId", user_id_type_index, protocol, &mut buffer)
+            {
                 ParsedField {
                     name: _,
-                    value: Some(field),
-                },
-            )) => field,
+                    value: Some(ParsedFieldType::Struct(fields)),
+                } => fields,
+                _ => panic!("Failed to parse user ID in game events"),
+            };
+            user_id = match user_data_fields.iter().find(|f| f.name == "m_userId") {
+                Some(ParsedField {
+                    name: _,
+                    value: Some(ParsedFieldType::Int(user_id)),
+                }) => *user_id,
+                _ => panic!("Failed to find user ID in user data"),
+            };
+            println!("User ID: {}", user_id);
+        } else {
+            // user_id = -1;
+            println!("User ID is absent in Tracker Event");
+        }
+
+        let field = match decode("eventId", event_id_type_index, protocol, &mut buffer) {
+            ParsedField {
+                name: _,
+                value: Some(field),
+            } => field,
             _ => panic!("Failed to parse event ID in game events"),
         };
         println!("Event ID: {:?}", field);
@@ -163,16 +199,12 @@ fn decode_game_events_data(archive: &mut Archive, protocol: &Protocol) {
             ParsedFieldType::Int(id) => id as u16,
             _ => panic!("Event ID is not an integer"),
         };
-        let event_type = protocol
-            .game_event_types
+        let event_type = event_types
             .get(&event_id)
             .expect("Failed to get event type from protocol");
-        let event = match decoder.decode("eventData", event_type.type_index, &protocol.type_infos) {
-            Ok((_, parsed_field)) => parsed_field,
-            _ => panic!("Failed to parse event data in game events"),
-        };
+        let event = decode("eventData", event_type.type_index, protocol, &mut buffer);
         println!("Game Loop ID: {}", loop_id);
         println!("Event Data: {:?}", event);
-        decoder.align();
+        buffer.byte_align();
     }
 }

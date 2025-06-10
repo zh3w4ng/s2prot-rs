@@ -3,9 +3,9 @@ use std::cmp::Ordering;
 #[derive(Debug, Clone, Copy)]
 pub struct BitPackedBuff<'a> {
     pub data: &'a [u8],
-    big_endian: bool,
-    cache: u8,
     pub byte_index: usize,
+    cache: u8,
+    big_endian: bool,
     bits_in_cache: usize,
 }
 
