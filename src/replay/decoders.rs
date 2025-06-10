@@ -1,281 +1,251 @@
 extern crate nom;
 
-use nom::IResult;
-
 use super::buffer::BitPackedBuff;
 use super::types::*;
 use crate::protocol::types::Protocol;
 use crate::protocol::types::TypeInfo;
-pub struct BitPackedDecoder<'a> {
-    buffer: BitPackedBuff<'a>,
-}
-impl<'a> BitPackedDecoder<'a> {
-    pub fn new(buffer: BitPackedBuff<'a>) -> Self {
-        Self { buffer }
-    }
+pub struct BitPackedDecoder;
 
-    pub fn completed(&self) -> bool {
-        self.buffer.done()
-    }
+pub fn raw_decode(
+    name: &str,
+    type_index: usize,
+    protocol: &Protocol,
+    buffer: &mut BitPackedBuff,
+) -> ParsedField {
+    match protocol.type_infos.get(type_index) {
+        Some(TypeInfo::BitArray { offset, length }) => {
+            // println!("BitArray Field: {}", name);
+            let length = buffer.read_int(*length, *offset) as usize;
+            let name = name.to_string();
+            let data = buffer.read_bit_array(length);
+            let value = Some(ParsedFieldType::BitArray { length, data });
+            // println!("Parsed value: {:?}\n", value);
 
-    pub fn align(&mut self) {
-        self.buffer.byte_align();
-    }
-    pub fn decode(
-        &mut self,
-        name: &'a str,
-        type_index: usize,
-        type_infos: &'a [TypeInfo],
-    ) -> IResult<BitPackedBuff<'a>, ParsedField> {
-        match type_infos.get(type_index) {
-            Some(TypeInfo::BitArray { offset, length }) => {
-                // println!("BitArray Field: {}", name);
-                let length = self.buffer.read_int(*length, *offset) as usize;
+            ParsedField { name, value }
+        }
+        Some(TypeInfo::Bool) => {
+            // println!("Bool Field: {}", name);
+            let name = name.to_string();
+            let value = Some(ParsedFieldType::Bool(buffer.read_bits(1) != 0));
+            // println!("Parsed value: {:?}\n", value);
+
+            ParsedField { name, value }
+        }
+        Some(TypeInfo::Int { offset, length }) => {
+            // println!("Int Field: {}", name);
+            let name = name.to_string();
+            let value = Some(ParsedFieldType::Int(buffer.read_int(*length, *offset)));
+            // println!("Parsed value: {:?}\n", value);
+
+            ParsedField { name, value }
+        }
+        Some(TypeInfo::Optional { type_index }) => {
+            // println!("Optional Field: {}", name);
+            let exists = buffer.read_bits(1) != 0;
+            if exists {
+                raw_decode(name, *type_index, protocol, buffer)
+            } else {
                 let name = name.to_string();
-                let data = self.buffer.read_bit_array(length);
-                let value = Some(ParsedFieldType::BitArray { length, data });
-                // println!("Parsed value: {:?}\n", value);
+                let value = None;
 
-                Ok((self.buffer, ParsedField { name, value }))
+                ParsedField { name, value }
             }
-            Some(TypeInfo::Bool) => {
-                // println!("Bool Field: {}", name);
-                let name = name.to_string();
-                let value = Some(ParsedFieldType::Bool(self.buffer.read_bits(1) != 0));
-                // println!("Parsed value: {:?}\n", value);
+            // println!("Parsed value: {:?}\n", parsed_field.value);
+        }
+        Some(TypeInfo::Blob { offset, length }) => {
+            // println!(
+            //     "Blob Field: {}, offset: {}, length: {}",
+            //     name, offset, length
+            // );
+            let length = buffer.read_int(*length, *offset) as usize;
+            // println!("Blob length: {}", length);
+            let name = name.to_string();
+            let bytes = buffer.read_aligned_bytes(length);
+            let chars = String::from_utf8_lossy(&bytes).into_owned();
+            let value = Some(ParsedFieldType::Blob(chars));
+            // println!("Parsed value: {:?}\n", value);
 
-                Ok((self.buffer, ParsedField { name, value }))
-            }
-            Some(TypeInfo::Int { offset, length }) => {
-                // println!("Int Field: {}", name);
-                let name = name.to_string();
-                let value = Some(ParsedFieldType::Int(self.buffer.read_int(*length, *offset)));
-                // println!("Parsed value: {:?}\n", value);
+            ParsedField { name, value }
+        }
+        Some(TypeInfo::Array {
+            offset,
+            length,
+            type_index,
+        }) => {
+            // println!("Array Field: {}", name);
+            let name = name.to_string();
+            // println!(
+            //     "Pre: Array Field: {}, length: {}, offset: {}",
+            //     name, *length, *offset,
+            // );
+            let length = buffer.read_int(*length, *offset) as usize;
+            // println!("Array Field: {}, length: {}", name, length);
+            let array =
+                (0..length).map(|_| raw_decode("", *type_index, protocol, buffer).value.unwrap());
+            let value = Some(ParsedFieldType::Array(array.collect()));
+            // println!("Parsed value: {:?}\n", value);
 
-                Ok((self.buffer, ParsedField { name, value }))
-            }
-            Some(TypeInfo::Optional { type_index }) => {
-                // println!("Optional Field: {}", name);
-                let exists = self.buffer.read_bits(1) != 0;
-                let parsed_field = if exists {
-                    let Ok((_, parsed_field)) = self.decode(name, *type_index, type_infos) else {
-                        panic!("Failed to decode TypeInfo::Optional");
-                    };
-                    parsed_field
-                } else {
-                    let name = name.to_string();
-                    let value = None;
+            ParsedField { name, value }
+        }
+        Some(TypeInfo::Struct { fields }) => {
+            // println!("Struct Field: {}", name);
+            let parsed_fields = fields
+                .iter()
+                .map(|field| raw_decode(&field.name, field.type_index, protocol, buffer));
+            let name = name.to_string();
+            let value = Some(ParsedFieldType::Struct(parsed_fields.collect()));
+            // println!("Parsed value: {:?}\n", value);
 
-                    ParsedField { name, value }
-                };
-                // println!("Parsed value: {:?}\n", parsed_field.value);
-
-                Ok((self.buffer, parsed_field))
-            }
-            Some(TypeInfo::Blob { offset, length }) => {
-                // println!(
-                //     "Blob Field: {}, offset: {}, length: {}",
-                //     name, offset, length
-                // );
-                let length = self.buffer.read_int(*length, *offset) as usize;
-                // println!("Blob length: {}", length);
-                let name = name.to_string();
-                let bytes = self.buffer.read_aligned_bytes(length);
-                let chars = String::from_utf8_lossy(&bytes).into_owned();
-                let value = Some(ParsedFieldType::Blob(chars));
-                // println!("Parsed value: {:?}\n", value);
-
-                Ok((self.buffer, ParsedField { name, value }))
-            }
-            Some(TypeInfo::Array {
-                offset,
-                length,
-                type_index,
-            }) => {
-                // println!("Array Field: {}", name);
-                let name = name.to_string();
-                // println!(
-                //     "Pre: Array Field: {}, length: {}, offset: {}",
-                //     name, *length, *offset,
-                // );
-                let length = self.buffer.read_int(*length, *offset) as usize;
-                // println!("Array Field: {}, length: {}", name, length);
-                let array = (0..length).map(|_| match self.decode("", *type_index, type_infos) {
-                    Ok((_, parsed_field)) => parsed_field.value.unwrap(),
-                    _ => panic!("Failed to decode TypeInfo::Array"),
-                });
-                let value = Some(ParsedFieldType::Array(array.collect()));
-                // println!("Parsed value: {:?}\n", value);
-
-                Ok((self.buffer, ParsedField { name, value }))
-            }
-            Some(TypeInfo::Struct { fields }) => {
-                // println!("Struct Field: {}", name);
-                let parsed_fields = fields.iter().map(|field| {
-                    match self.decode(&field.name, field.type_index, type_infos) {
-                        Ok((_, parsed_field)) => parsed_field,
-                        _ => panic!("Failed to decode TypeInfo::Struct::Field: {}", field.name),
-                    }
-                });
-                let name = name.to_string();
-                let value = Some(ParsedFieldType::Struct(parsed_fields.collect()));
-                // println!("Parsed value: {:?}\n", value);
-
-                Ok((self.buffer, ParsedField { name, value }))
-            }
-            Some(TypeInfo::Choice {
-                offset,
-                length,
-                fields,
-            }) => {
-                // println!("Choice field: {}", name);
-                let tag = self.buffer.read_int(*length, *offset) as usize;
-                let field = fields.get(tag).unwrap_or_else(|| {
-                    panic!(
-                        "Failed to decode TypeInfo::Choice: tag {} not found in fields",
-                        tag
-                    )
-                });
-                self.decode(name, field.type_index, type_infos)
-            }
-            Some(TypeInfo::Null) => Ok((
-                self.buffer,
-                ParsedField {
-                    name: name.to_string(),
-                    value: Some(ParsedFieldType::Null),
-                },
-            )),
-            others => {
-                panic!("Unknown TypeInfo: {}", others.unwrap());
-            }
+            ParsedField { name, value }
+        }
+        Some(TypeInfo::Choice {
+            offset,
+            length,
+            fields,
+        }) => {
+            // println!("Choice field: {}", name);
+            let tag = buffer.read_int(*length, *offset) as usize;
+            let field = fields.get(tag).unwrap_or_else(|| {
+                panic!(
+                    "Failed to decode TypeInfo::Choice: tag {} not found in fields",
+                    tag
+                )
+            });
+            raw_decode(name, field.type_index, protocol, buffer)
+        }
+        Some(TypeInfo::Null) => ParsedField {
+            name: name.to_string(),
+            value: Some(ParsedFieldType::Null),
+        },
+        others => {
+            panic!("Unknown TypeInfo: {}", others.unwrap());
         }
     }
 }
-pub struct VersionedDecoder<'a> {
-    buffer: BitPackedBuff<'a>,
-}
 
-impl<'a> VersionedDecoder<'a> {
-    pub fn new(buffer: BitPackedBuff<'a>) -> Self {
-        Self { buffer }
-    }
+pub fn versioned_decode(
+    name: &str,
+    type_index: usize,
+    protocol: &Protocol,
+    buffer: &mut BitPackedBuff,
+) -> ParsedField {
+    println!("Field name: {:?}", name);
+    match protocol.type_infos.get(type_index) {
+        Some(TypeInfo::Bool) => {
+            println!("Buffer: {}", buffer.data[buffer.byte_index]);
+            buffer.expect_and_skip_byte(6);
+            let name = name.to_string();
+            let value = Some(ParsedFieldType::Bool(buffer.read_bits(8) != 0));
 
-    pub fn decode(
-        &mut self,
-        name: &'a str,
-        type_index: usize,
-        protocol: &'a Protocol,
-    ) -> IResult<BitPackedBuff<'a>, ParsedField> {
-        println!("Field name: {:?}", name);
-        match protocol.type_infos.get(type_index) {
-            Some(TypeInfo::Bool) => {
-                println!("Buffer: {}", self.buffer.data[self.buffer.byte_index]);
-                self.buffer.expect_and_skip_byte(6);
+            ParsedField { name, value }
+        }
+        Some(TypeInfo::Optional { type_index }) => {
+            println!("Buffer: {}", buffer.data[buffer.byte_index]);
+            buffer.expect_and_skip_byte(4);
+            let exists = buffer.read_bits(8) != 0;
+            if exists {
+                versioned_decode(name, *type_index, protocol, buffer)
+            } else {
                 let name = name.to_string();
-                let value = Some(ParsedFieldType::Bool(self.buffer.read_bits(8) != 0));
+                let value = None;
 
-                Ok((self.buffer, ParsedField { name, value }))
+                ParsedField { name, value }
             }
-            Some(TypeInfo::Optional { type_index }) => {
-                println!("Buffer: {}", self.buffer.data[self.buffer.byte_index]);
-                self.buffer.expect_and_skip_byte(4);
-                let exists = self.buffer.read_bits(8) != 0;
-                let parsed_field = if exists {
-                    let Ok((_, parsed_field)) = self.decode(name, *type_index, protocol) else {
-                        panic!("Failed to decode TypeInfo::Optional");
-                    };
-                    parsed_field
-                } else {
-                    let name = name.to_string();
-                    let value = None;
+        }
+        Some(TypeInfo::Int {
+            offset: _,
+            length: _,
+        }) => {
+            println!("Buffer: {}", buffer.data[buffer.byte_index]);
+            buffer.expect_and_skip_byte(9);
+            let name = name.to_string();
+            let value = Some(ParsedFieldType::Int(buffer.read_var_int()));
+            println!("Parsed value: {:?}", value);
 
-                    ParsedField { name, value }
-                };
-                Ok((self.buffer, parsed_field))
-            }
-            Some(TypeInfo::Int {
-                offset: _,
-                length: _,
-            }) => {
-                println!("Buffer: {}", self.buffer.data[self.buffer.byte_index]);
-                self.buffer.expect_and_skip_byte(9);
-                let name = name.to_string();
-                let value = Some(ParsedFieldType::Int(self.buffer.read_var_int()));
-                println!("Parsed value: {:?}", value);
+            ParsedField { name, value }
+        }
+        Some(TypeInfo::Blob {
+            offset: _,
+            length: _,
+        }) => {
+            println!("Buffer: {}", buffer.data[buffer.byte_index]);
+            buffer.expect_and_skip_byte(2);
+            let name = name.to_string();
+            let length = buffer.read_var_int() as usize;
+            let bytes = buffer.read_aligned_bytes(length);
+            let chars = String::from_utf8_lossy(&bytes).into_owned();
+            let value = Some(ParsedFieldType::Blob(chars));
 
-                Ok((self.buffer, ParsedField { name, value }))
-            }
-            Some(TypeInfo::Blob {
-                offset: _,
-                length: _,
-            }) => {
-                println!("Buffer: {}", self.buffer.data[self.buffer.byte_index]);
-                self.buffer.expect_and_skip_byte(2);
-                let name = name.to_string();
-                let length = self.buffer.read_var_int() as usize;
-                let bytes = self.buffer.read_aligned_bytes(length);
-                let chars = String::from_utf8_lossy(&bytes).into_owned();
-                let value = Some(ParsedFieldType::Blob(chars));
+            ParsedField { name, value }
+        }
+        Some(TypeInfo::FourCC) => {
+            println!("Buffer: {}", buffer.data[buffer.byte_index]);
+            buffer.expect_and_skip_byte(7);
+            let name = name.to_string();
+            let value = Some(ParsedFieldType::FourCC(buffer.read_aligned_bytes(4)));
 
-                Ok((self.buffer, ParsedField { name, value }))
-            }
-            Some(TypeInfo::FourCC) => {
-                println!("Buffer: {}", self.buffer.data[self.buffer.byte_index]);
-                self.buffer.expect_and_skip_byte(7);
-                let name = name.to_string();
-                let value = Some(ParsedFieldType::FourCC(self.buffer.read_aligned_bytes(4)));
+            ParsedField { name, value }
+        }
+        Some(TypeInfo::Choice {
+            offset: _,
+            length: _,
+            fields,
+        }) => {
+            println!("Buffer: {}", buffer.data[buffer.byte_index]);
+            buffer.expect_and_skip_byte(3);
+            let tag = buffer.read_var_int();
+            let field = fields.iter().find(|f| f.tag == tag).unwrap_or_else(|| {
+                panic!(
+                    "Failed to decode TypeInfo::Choice: tag {} not found in fields",
+                    tag
+                )
+            });
+            versioned_decode(name, field.type_index, protocol, buffer)
+        }
+        Some(TypeInfo::Array {
+            offset: _,
+            length: _,
+            type_index,
+        }) => {
+            println!("Buffer: {}", buffer.data[buffer.byte_index]);
+            buffer.expect_and_skip_byte(0);
+            let name = name.to_string();
+            let array_length = buffer.read_var_int() as usize;
+            println!("Array length: {}", array_length);
+            let array = (0..array_length).map(|_| {
+                versioned_decode("", *type_index, protocol, buffer)
+                    .value
+                    .unwrap()
+            });
+            let value = Some(ParsedFieldType::Array(array.collect()));
 
-                Ok((self.buffer, ParsedField { name, value }))
-            }
-            Some(TypeInfo::Array {
-                offset: _,
-                length: _,
-                type_index,
-            }) => {
-                println!("Buffer: {}", self.buffer.data[self.buffer.byte_index]);
-                self.buffer.expect_and_skip_byte(0);
-                let name = name.to_string();
-                let array_length = self.buffer.read_var_int() as usize;
-                println!("Array length: {}", array_length);
-                let array = (0..array_length).map(|_| {
-                    let Ok((_, parsed_field)) = self.decode("", *type_index, protocol) else {
-                        panic!("Failed to decode TypeInfo::Array");
-                    };
-                    parsed_field.value.unwrap()
-                });
-                let value = Some(ParsedFieldType::Array(array.collect()));
-
-                Ok((self.buffer, ParsedField { name, value }))
-            }
-            Some(TypeInfo::Struct { fields }) => {
-                println!("Buffer: {}", self.buffer.data[self.buffer.byte_index]);
-                self.buffer.expect_and_skip_byte(5);
-                let fields_length = self.buffer.read_var_int() as usize;
-                let mut parsed_fields: Vec<ParsedField> = Vec::with_capacity(fields_length);
-                let mut i = 0;
-                while i < fields_length {
-                    let tag = self.buffer.read_var_int();
-                    while tag > fields.get(i).unwrap().tag {
-                        i += 1;
-                    }
-                    let field = fields.get(i).unwrap();
-
-                    match self.decode(&field.name, field.type_index, protocol) {
-                        Ok((_, parsed_field)) => {
-                            parsed_fields.push(parsed_field);
-                        }
-                        _ => panic!("Failed to decode TypeInfo::Struct::Field: {}", field.name),
-                    }
+            ParsedField { name, value }
+        }
+        Some(TypeInfo::Struct { fields }) => {
+            println!("Buffer: {}", buffer.data[buffer.byte_index]);
+            buffer.expect_and_skip_byte(5);
+            let fields_length = buffer.read_var_int() as usize;
+            let mut parsed_fields: Vec<ParsedField> = Vec::with_capacity(fields_length);
+            let mut i = 0;
+            while i < fields_length {
+                let tag = buffer.read_var_int();
+                while tag > fields.get(i).unwrap().tag {
                     i += 1;
                 }
-                let name = name.to_string();
-                let value = Some(ParsedFieldType::Struct(parsed_fields));
+                let field = fields.get(i).unwrap();
 
-                Ok((self.buffer, ParsedField { name, value }))
+                let parsed_field =
+                    versioned_decode(&field.name, field.type_index, protocol, buffer);
+                parsed_fields.push(parsed_field);
+                i += 1;
             }
-            others => {
-                panic!("Unknown TypeInfo: {}", others.unwrap());
-            }
+            let name = name.to_string();
+            let value = Some(ParsedFieldType::Struct(parsed_fields));
+
+            ParsedField { name, value }
+        }
+        others => {
+            panic!("Unknown TypeInfo: {}", others.unwrap());
         }
     }
 }
@@ -297,9 +267,8 @@ mod tests {
             176, 177, 11, 14, 5, 2, 2, 2, 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 16,
             6, 0,
         ];
-        let bit_packed_buffer = BitPackedBuff::new_big_endian(input);
-        let mut decoder = VersionedDecoder::new(bit_packed_buffer);
-        let (_, user_data) = decoder.decode("UserData", index, &protocol).unwrap();
+        let mut buffer = BitPackedBuff::new_big_endian(input);
+        let user_data = versioned_decode("UserData", index, &protocol, &mut buffer);
         assert_eq!(
             user_data,
             ParsedField {
@@ -421,9 +390,8 @@ mod tests {
             71, 20, 232, 62, 94, 114, 97, 249, 177, 241, 241, 185, 167, 203, 255, 42, 250, 22, 6,
             0, 24, 9, 8, 26, 9, 6, 28, 4, 0, 30, 9, 0, 32, 4, 1, 6, 0, 34, 6, 0,
         ];
-        let bit_packed_buffer = BitPackedBuff::new_big_endian(input);
-        let mut decoder = VersionedDecoder::new(bit_packed_buffer);
-        let (_, details_data) = decoder.decode("DetailsData", index, &protocol).unwrap();
+        let mut buffer = BitPackedBuff::new_big_endian(input);
+        let details_data = versioned_decode("DetailsData", index, &protocol, &mut buffer);
         assert_eq!(
             details_data,
             ParsedField {
